@@ -2,6 +2,45 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 04 — Result leaf-value serialization: scalars + temporals (`Ariadne.Core`)
+
+The first half of the **result** side (the inverse of Feature 01): serialize a single **leaf** Bolt/driver
+value — as the driver hands it back — into the canonical result JSON (result spec §3 value type map, §5
+null handling). New `Ariadne.Core.Results` namespace, `System.Text.Json`. This is the foundation the
+graph/composite serializer (Feature 05) and the record envelope (Feature 06) build on.
+
+- **`CypherValueSerializer`** — the public entry points: `void Write(Utf8JsonWriter, object?)` writes one
+  value into an open writer (composes cleanly for the later nested list/graph work — a nested element is
+  the same call, recursively), and `string Serialize(object?)` is a convenience wrapper returning the JSON
+  text. A public `CanonicalWriterOptions` (relaxed escaping, so a `+` offset and non-ASCII text render
+  literally rather than as `\uXXXX`) is shared so later features encode identically.
+- **Leaf type map:** `null`→`null` (explicit, never omitted — §5), `bool`→JSON bool, `long`→JSON integer,
+  `double`→JSON number, `string`→JSON string, `byte[]`→base64 string, and the driver temporals
+  `LocalDate`→`"yyyy-MM-dd"`, `LocalTime`→`"HH:mm:ss[.fffffff]"`, `LocalDateTime`→`"yyyy-MM-ddTHH:mm:ss[.fffffff]"`
+  (zoneless), and `ZonedDateTime`→ the pinned full-fidelity object `{ "value": "<zoneless ISO wall-clock>",
+  "zone": "<named zone id or ±HH:MM offset>" }`.
+- **Strict, culture-invariant ISO rendering** in one place (`TemporalFormat`), reading the driver's stored
+  wall-clock **components** (`Year`…`Nanosecond`) directly — never a converted `DateTime` — so the emitted
+  string is the literal local time and **cannot depend on the host timezone** (asserted under UTC / LA /
+  Tokyo). The `ZonedDateTime` zone is extracted from the driver's `Zone`: a `ZoneId` yields its `.Id`; a
+  `ZoneOffset` yields its `.OffsetSeconds` rendered as `±HH:MM` — a zone is read, never fabricated.
+  Fractional seconds are emitted **only when non-zero**, up to 7 digits (100 ns / one CLR tick), trailing
+  zeros trimmed.
+- **Fail-loud rules** (all `CypherResultException`, message naming the offending runtime type): any value
+  whose runtime type is not a supported leaf — the deferred `Duration`/`Point`/`OffsetTime`, the composites
+  `Node`/`Relationship`/`Path`/`IList`/`IDictionary` (Feature 05), or any unknown type (incl. a boxed
+  `int`/`decimal`, which are **not** silently widened) — throws, never a placeholder or a guess. Also fail
+  loud: a non-finite `double` (`NaN`/±∞, which JSON cannot represent), a fixed-offset `ZonedDateTime` whose
+  offset is not a whole number of minutes, and a temporal carrying genuine sub-100-ns precision (a
+  nanosecond not a multiple of 100) the pinned ≤7-digit format cannot hold — all rejected rather than
+  silently truncated. Feature 05 will replace the composite throws with real handling.
+- **Out of scope (deliberately, land later):** composites/graph envelopes (Feature 05), the record
+  envelope / columns / summary (Feature 06), the deferred temporals/spatials, and all
+  connection/driver/session/execution code — serialization is pure over already-materialized values.
+- **52 new tests** (149 → **201**), all green. Pure logic — real driver values constructed directly, no
+  server, no session, no mocking libraries; the `+02:00`/named-zone extraction and host-TZ independence
+  verified empirically against Neo4j.Driver 5.28.3.
+
 ## Feature 03 — `Json` escape-hatch parameter (`Ariadne.Core`)
 
 The advanced, **recursive** typed-JSON escape hatch (Decision B) for arbitrarily nested structures
