@@ -2,6 +2,64 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 09 — Query execution: RunCypherRead/Write/AutoCommit + error mapping (`Ariadne.Core.Execution`)
+
+The layer that actually runs a query — the piece that makes Core functionally complete. It wires the Feature 08
+driver-singleton cache → a per-call session → the right transaction mode → the cursor → the Feature 06
+`RecordsJson` envelope + the Feature 07 `CypherSummary`, converting the caller's typed parameters via the
+Features 01-03 mapper and blocking the async driver once at the outermost boundary via `AsyncBridge`. A **live
+Neo4j** is available on this box, so this feature ships **real integration tests**, not just mocks. The real
+Neo4j.Driver 5.28.3 execution/cursor API was verified by reflection before use (not trusted from the brief).
+
+- **`CypherExecutor`** (ctor takes a `DriverCache`) with three methods, each
+  `(ConnConfig, string query, IEnumerable<CypherParameter>)` → a **`CypherExecutionResult`** carrying
+  `RecordsJson` (string), `Columns` (`IReadOnlyList<string>`), and `Summary` (`CypherSummary`):
+  - **`RunCypherRead`** → `session.ExecuteReadAsync` — managed read tx (routes to replicas, auto-retries transient errors).
+  - **`RunCypherWrite`** → `session.ExecuteWriteAsync` — managed write tx (routes to leader, auto-retries).
+  - **`RunCypherAutoCommit`** → `session.RunAsync` — implicit tx, **no routing, no retry** (for `CALL {} IN TRANSACTIONS` / admin).
+- **Wiring:** `DriverCache.GetDriver` → `driver.AsyncSession(o => o.WithDatabase(db))` (only when `Database`
+  is non-null) → the tx mode → cursor. Inside the tx function (mandatory for a managed tx) the cursor is fully
+  drained: `KeysAsync()` for the columns, `ToListAsync()` to materialize the records, then `ConsumeAsync()`
+  for the summary — all before the function returns. Records → `RecordsJsonBuilder`; summary →
+  `CypherSummaryMapper`. Parameters → `CypherParameterMapper.BuildParameters`. Blocked via `AsyncBridge.RunSync`
+  (the original driver exception, never an `AggregateException`, surfaces for mapping). The **columns come from
+  the cursor's `Keys`**, so an empty (zero-row) result still reports its projected column names.
+- **The three modes share one cursor-handling lambda** (a session *is* an `IAsyncQueryRunner`, so the
+  auto-commit path calls the same lambda directly, without the managed-tx wrapper).
+- **Error mapping (spec §9)** — every driver `Neo4jException` → a named **`CypherExecutionException`** carrying
+  a `Classification` (Developer vs Operational) and the Neo4j `Code`. Developer errors surface **verbatim**;
+  operational errors get a friendly message that **never leaks a credential** (built only from the URI + status
+  code):
+  | Driver exception | Class | Surfaced message |
+  |---|---|---|
+  | `ClientException` (bad Cypher / constraint) | **Developer** | `"{code}: {message}"` verbatim |
+  | `AuthenticationException` | Operational | `"Neo4j authentication failed."` (no field hint) |
+  | `ServiceUnavailableException` | Operational | `"Cannot reach Neo4j at {uri}."` |
+  | `SessionExpiredException` | Operational | `"Neo4j routing/session error ({retried})."` |
+  | `TransientException` | Operational | `"Neo4j transient error persisted ({retried}): {code}."` |
+  | `ConnectionReadTimeoutException` | Operational | `"Neo4j connection timed out (read timeout)."` |
+  | `DatabaseException` | Operational | `"Neo4j server error: {code}."` |
+  | any other `Neo4jException` | Operational | `"Neo4j error: {code}."` |
+  `{retried}` says "after retries were exhausted" for the managed modes and "in an auto-commit statement (no
+  retry)" for auto-commit — truthful about whether a retry happened. A bad **parameter** (`CypherParameterException`)
+  or a bad **config/auth scheme** (`ConnectionException`) still surfaces unwrapped and loud — they never reach the network.
+- **Session disposal** uses a synchronous `using` (not `await using`): on netstandard2.0 the `await using`
+  lowering hard-references `Microsoft.Bcl.AsyncInterfaces`, which the net10 test host omits as "in-box"; the
+  driver session's own `IDisposable.Dispose()` closes it by blocking on `CloseAsync().GetAwaiter().GetResult()`
+  — the same sync-over-async pattern the connector already uses — so cleanup is equivalent with no extra package.
+- **Not offered:** developer-managed multi-call transactions (`BeginTransaction`/`Commit` across calls) — a
+  documented non-goal (spec §4); each method here is exactly one transaction.
+- **Tests: 30 new (24 unit + 6 live integration), suite 309 → 339.** Unit tests use hand-rolled fakes of the
+  driver's async surface (no server, no mocking libs) for the orchestration: routing (Read→ExecuteReadAsync,
+  Write→ExecuteWriteAsync, AutoCommit→session.RunAsync), parameter flow, session database + disposal,
+  cursor-keys columns on empty results, and every error-mapping row (incl. asserting no operational message
+  leaks the password). Integration tests hit a **real Neo4j**, are **env-gated** (`NEO4J_TEST_URI`/`_USER`/`_PASSWORD`)
+  and **skip cleanly when unset** via a custom `[RequiresNeo4jFact]` (xunit 2.9.3 has no `Assert.Skip` — a v3
+  API — so a discovery-time `FactAttribute.Skip` is set; no new package): a bound scalar + temporal round-trip,
+  a `CREATE` with `NodesCreated == 1` read back, an auto-commit `RETURN`, an empty-result column check, and a
+  real bad-Cypher developer error (`Neo.ClientError.Statement.SyntaxError`). They create/delete only
+  `:AriadneOracleTest` nodes and never assume a clean DB. Verified live: 6/6 pass, 0 leftover nodes.
+
 ## Feature 08 — Connection foundation: driver-singleton cache + auth + connectivity (`Ariadne.Core.Connection`)
 
 The start of the connection layer (connection spec §1/§2/§5/§7/§10) and the cardinal rule of the whole
