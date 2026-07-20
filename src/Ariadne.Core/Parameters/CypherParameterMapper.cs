@@ -136,7 +136,10 @@ public static class CypherParameterMapper
 
     private static ZonedDateTime BuildZoned(CypherParameter p)
     {
-        var dt = RequiredDateTime(p);
+        // Normalize away the hidden DateTime.Kind flag so the wall-clock is interpreted literally in
+        // the supplied zone — never UTC-shifted (Kind=Utc, a silent miscompute) nor offset-validated
+        // and rejected (Kind=Local). Behaviour must not depend on Kind (design principle 5).
+        var dt = DateTime.SpecifyKind(RequiredDateTime(p), DateTimeKind.Unspecified);
 
         // A zone is only ever produced when the caller supplied one — never invented.
         if (!string.IsNullOrEmpty(p.ZoneId))

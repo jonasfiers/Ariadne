@@ -196,6 +196,40 @@ public class CypherParameterMapperTests
         Assert.Contains("Not/AZone", ex.Message);
     }
 
+    // Regression (reviewer finding): the produced wall-clock must not depend on DateTime.Kind.
+    // Kind=Utc must NOT shift 10:00 -> 12:00, and Kind=Local must NOT throw. All Kinds -> 10:00.
+    [Theory]
+    [InlineData(DateTimeKind.Unspecified)]
+    [InlineData(DateTimeKind.Utc)]
+    [InlineData(DateTimeKind.Local)]
+    public void ZonedDateTime_wall_clock_is_independent_of_DateTimeKind_via_ZoneId(DateTimeKind kind)
+    {
+        var dt = DateTime.SpecifyKind(new DateTime(2024, 9, 1, 10, 0, 0), kind);
+        var v = MapOne(new CypherParameter
+        {
+            Name = "z", Type = "ZonedDateTime", DateTimeValue = dt, ZoneId = "Europe/Brussels"
+        });
+        var zdt = Assert.IsType<ZonedDateTime>(v);
+        Assert.Equal(10, zdt.Hour); // literal wall-clock, never Kind-shifted
+        Assert.Equal("Europe/Brussels", ((ZoneId)zdt.Zone).Id);
+    }
+
+    [Theory]
+    [InlineData(DateTimeKind.Unspecified)]
+    [InlineData(DateTimeKind.Utc)]
+    [InlineData(DateTimeKind.Local)]
+    public void ZonedDateTime_wall_clock_is_independent_of_DateTimeKind_via_OffsetMinutes(DateTimeKind kind)
+    {
+        var dt = DateTime.SpecifyKind(new DateTime(2024, 9, 1, 10, 0, 0), kind);
+        var v = MapOne(new CypherParameter
+        {
+            Name = "z", Type = "ZonedDateTime", DateTimeValue = dt, OffsetMinutes = 120
+        });
+        var zdt = Assert.IsType<ZonedDateTime>(v);
+        Assert.Equal(10, zdt.Hour);
+        Assert.Equal(120 * 60, zdt.OffsetSeconds);
+    }
+
     // ---- sub-second precision ----
 
     [Fact]
