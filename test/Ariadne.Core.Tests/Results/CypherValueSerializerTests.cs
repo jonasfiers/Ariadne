@@ -262,13 +262,16 @@ public class CypherValueSerializerTests
     public void OffsetTime_throws_naming_type()
         => AssertUnsupported(new OffsetTime(10, 30, 0, 2 * 3600), "OffsetTime");
 
+    // NOTE: `IList` and `IDictionary` were the Feature 04 "not yet supported" placeholders; Feature 05
+    // makes them supported composites (JSON array / object). The exhaustive composite coverage lives in
+    // CypherCompositeSerializerTests; these two just pin that the leaf serializer no longer rejects them.
     [Fact]
-    public void List_stand_in_throws_naming_type()
-        => AssertUnsupported(new List<object?> { 1L, 2L }, "List");
+    public void List_is_now_serialized_as_a_json_array()
+        => Assert.Equal("[1,2]", CypherValueSerializer.Serialize(new List<object?> { 1L, 2L }));
 
     [Fact]
-    public void Dictionary_stand_in_throws_naming_type()
-        => AssertUnsupported(new Dictionary<string, object?> { ["a"] = 1L }, "Dictionary");
+    public void Dictionary_is_now_serialized_as_a_json_object()
+        => Assert.Equal("{\"a\":1}", CypherValueSerializer.Serialize(new Dictionary<string, object?> { ["a"] = 1L }));
 
     [Fact]
     public void Unknown_arbitrary_type_throws_naming_type()

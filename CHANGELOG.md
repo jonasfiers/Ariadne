@@ -2,6 +2,44 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 05 — Result composites + graph envelopes (`Ariadne.Core`)
+
+The second half of result value serialization: extends `CypherValueSerializer.Write` from leaves (Feature 04)
+to the **composite** and **graph** driver types, completing the value contract (the record envelope —
+columns/records/summary — is Feature 06). Result spec §4 (graph envelopes) and §6 (arbitrary-key maps).
+
+- **Composites → recursion through the same `Write`.** `System.Collections.IList` → JSON **array** (each
+  element via `Write`); `System.Collections.IDictionary` → JSON **object** (each value via `Write`). A
+  composite's children go back through `Write`, so arbitrary nesting (list-of-maps, map-of-lists, node
+  whose property is a list, …) works to any depth and every leaf rule (fail-loud, 100-ns precision) is
+  inherited unchanged. `byte[]` is still caught by the leaf case above, so it never falls into the `IList`
+  path.
+- **Arbitrary-key maps (§6) — keys verbatim, no Pattern B.** Map/property keys are emitted exactly as-is
+  (spaces, dots, `$` preserved); there is no name/value list anywhere. A non-string map key (which Neo4j
+  never produces) fails loud rather than being coerced.
+- **Graph envelopes (§4), `elementId` only (decision R2 — the deprecated numeric `id` is never emitted):**
+  - `Neo4j.Driver.INode` → `{ "elementId", "labels": [...], "properties": { ... } }`
+  - `Neo4j.Driver.IRelationship` → `{ "elementId", "type", "startNodeElementId", "endNodeElementId", "properties": { ... } }`
+  - `Neo4j.Driver.IPath` → `{ "nodes": [ <node>, ... ], "relationships": [ <rel>, ... ] }`, driver traversal
+    order preserved.
+  - `properties` is the driver's typed `IReadOnlyDictionary<string, object>`, serialized by recursing
+    `Write` over each value — the same object shape as a bare map, but read from the entity's typed member
+    so it never depends on the concrete map class.
+- **Verified against the real Neo4j.Driver 5.28.3 API** (by reflection): `INode.ElementId`/`Labels`/
+  `Properties`, `IRelationship.ElementId`/`Type`/`StartNodeElementId`/`EndNodeElementId`/`Properties`,
+  `IPath.Nodes`/`Relationships` (`ElementId`/`Properties` inherited from `IEntity`).
+- **Fail loud + writer integrity (BACKLOG P1/N1).** An unsupported value (deferred `Duration`/`Point`/
+  `OffsetTime`, non-finite `double`, or unknown type) **anywhere in the tree** throws the named
+  `CypherResultException` and the exception **propagates** — the serializer never catches it nor tries to
+  "close" the partial JSON. Proven empirically: a mid-array throw leaves the shared `Utf8JsonWriter`
+  holding an unclosed, invalid-JSON fragment (`[1,"ok"`), which `JsonDocument.Parse` rejects — Feature 06's
+  record layer is responsible for abandoning that writer/buffer.
+- **24 new tests** (201 → **225**), all green. Pure logic — the driver graph interfaces are satisfied by
+  small hand-rolled fakes (no server, no session, no mocking libraries); lists/maps/nodes/rels/paths,
+  arbitrary keys, deep nesting, traversal order, `elementId`-only identity, and the N1 mid-tree-throw
+  behavior all asserted. (The two Feature 04 `IList`/`IDictionary` "not yet supported" placeholder tests
+  were updated to assert the now-supported array/object output.)
+
 ## Feature 04 — Result leaf-value serialization: scalars + temporals (`Ariadne.Core`)
 
 The first half of the **result** side (the inverse of Feature 01): serialize a single **leaf** Bolt/driver
