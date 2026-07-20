@@ -1,0 +1,18 @@
+bin/
+obj/
+.vs/
+*.user
+.DS_Store
+
+# Ephemeral agent worktrees (harness-managed)
+.claude/worktrees/
+
+# Python
+__pycache__/
+*.pyc
+
+# Internal AI-coordination notes — not for the public repo
+/CLAUDE.md
+
+# Claude Code local tooling config — not part of the deliverable
+/.claude/settings.json

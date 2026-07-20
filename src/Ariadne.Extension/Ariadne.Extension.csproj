@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Ariadne.Extension</AssemblyName>
+    <RootNamespace>Ariadne.Extension</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Ariadne.Core/Ariadne.Core.csproj" />
+  </ItemGroup>
+
+</Project>

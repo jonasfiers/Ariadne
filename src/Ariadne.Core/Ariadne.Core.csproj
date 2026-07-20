@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Ariadne.Core</AssemblyName>
+    <RootNamespace>Ariadne.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pinned to the 5.x line: it targets netstandard2.0, so the built DLL is consumable by
+         .NET Framework 4.7.2+, which OutSystems 11 Integration Studio extensions require.
+         Neo4j.Driver 6.x is net8.0+ only and is reserved for the future ODC track. -->
+    <PackageReference Include="Neo4j.Driver" Version="5.28.3" />
+  </ItemGroup>
+
+</Project>
