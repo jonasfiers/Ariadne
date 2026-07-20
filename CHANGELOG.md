@@ -2,6 +2,42 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 07 — Result summary / counters mapping: `CypherSummary` (`Ariadne.Core`)
+
+The last result-side piece before the connection/execution layer: a **pure projection** of the driver's
+`IResultSummary` into the static, typed `CypherSummary` POCO (result spec §2). Unlike records (dynamic → JSON),
+the summary shape is known and fixed, so it is returned already-typed with no JSON step. No connection, session,
+or query execution — `Map` reads an already-obtained summary.
+
+- **`CypherSummary`** (POCO) — the fixed, typed summary: write counters (`NodesCreated`, `NodesDeleted`,
+  `RelationshipsCreated`, `RelationshipsDeleted`, `PropertiesSet`, `LabelsAdded`, `LabelsRemoved`,
+  `IndexesAdded`, `IndexesRemoved`, `ConstraintsAdded`, `ConstraintsRemoved`, `SystemUpdates`), the two update
+  flags (`ContainsUpdates`, `ContainsSystemUpdates`), timings (`ResultAvailableAfterMs`,
+  `ResultConsumedAfterMs`), `QueryType` (short code), and `Database`. Counters are **widened to `long`** to match
+  the OutSystems **Long Integer** attribute type of §2 (the driver exposes them as `int` on `ICounters`; the
+  widening is lossless). Mutable `{ get; set; }` auto-properties, matching the other POCOs.
+- **`CypherSummaryMapper.Map(IResultSummary) : CypherSummary`** (static) — the pure projection. Counters copied
+  1:1; timings converted `(long)TimeSpan.TotalMilliseconds`; `QueryType` mapped to its short code; database name
+  read via `summary.Database?.Name` (passed through as reported, may be null — never fabricated).
+- **Timing "unavailable" sentinel:** the driver reports an unavailable timing as `TimeSpan.FromMilliseconds(-1)`.
+  It is **passed through as `-1`** (a documented sentinel the caller can detect), never silently zeroed — `0`
+  would be indistinguishable from a genuine sub-millisecond timing. (Sub-millisecond values truncate toward
+  zero, per the `(long)` cast — asserted.)
+- **`QueryType` short codes** (verified against the real 5.28.3 enum): `ReadOnly`→`"r"`, `ReadWrite`→`"rw"`,
+  `WriteOnly`→`"w"`, `SchemaWrite`→`"s"`.
+- **Fail loud:** `Map(null)` → `ArgumentNullException`; a null `Counters` → `ArgumentNullException`; the driver's
+  `QueryType.Unknown` (a real value with **no defined short code**) and any undefined enum value → named
+  `CypherResultException` (never a blank or guessed classification).
+- **Verified against the real Neo4j.Driver 5.28.3 API** (by reflection): `IResultSummary` members `Counters`
+  (`ICounters`), `QueryType` (`QueryType` enum), `ResultAvailableAfter`/`ResultConsumedAfter` (`TimeSpan`),
+  `Database` (`IDatabaseInfo`, with a `Name`); `ICounters` counter fields are `int`; `QueryType` enum =
+  `Unknown=0, ReadOnly=1, ReadWrite=2, WriteOnly=3, SchemaWrite=4`.
+- **19 new tests** (245 → **264**), all green. Pure logic — hand-rolled `IResultSummary`/`ICounters`/
+  `IDatabaseInfo` fakes (no server, no session, no mocking libraries): every counter 1:1 (distinct primes so a
+  swapped field is caught), int→long widening, timing conversion + the `-1` sentinel + sub-ms truncation, each
+  `QueryType` code, `Unknown`/undefined → throw, both update flags, database pass-through (name, null-info,
+  null-name), and both null-argument throws.
+
 ## Feature 06 — Record-envelope builder: `RecordsJson` (`Ariadne.Core`)
 
 Assembles a whole query result into the canonical `RecordsJson` envelope (result spec §2): a JSON **array** of
