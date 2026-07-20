@@ -22,7 +22,8 @@ namespace Ariadne.Core.Tests.Execution;
 /// <c>:AriadneOracleTest</c>-labelled nodes and never assume a clean database.
 /// </para>
 /// </remarks>
-public sealed class CypherExecutorIntegrationTests : IClassFixture<CypherExecutorIntegrationTests.OracleFixture>
+[Collection(Neo4jLiveOracleCollection.Name)]
+public sealed class CypherExecutorIntegrationTests
 {
     private readonly OracleFixture _fx;
 

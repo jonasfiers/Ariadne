@@ -2,6 +2,47 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 10 — The round-trip oracle (live-Neo4j integration tests)
+
+The differentiator proof — the PICASSO-GnuCOBOL analogue. A systematic, **test-only**, end-to-end validation
+that drives the whole stack against the **live Neo4j** for every supported type and asserts the exact
+canonical JSON. One loop — `CypherExecutor.RunCypherRead("RETURN $p AS p", [<typed CypherParameter>])` →
+assert `RecordsJson` — proves the parameter mapper (F01–03), the real server, and the result serializer
+(F04–06) all agree. No production code changed.
+
+- **`CypherRoundTripOracleTests`** — 21 env-gated `[RequiresNeo4jFact]` tests, **exact** JSON assertions
+  (no tautological passes). Full §3 parameter-map + §3 result-map coverage:
+  - **Scalars:** `String → "hi"`, `Integer → 42`, `Float → 3.5`, `Boolean → true`, `Null → null`.
+  - **Documented `Decimal→Float` loss (spec §5)** asserted *as* a loss: `1.2345678901234567890` comes back
+    `1.2345678901234567` (low digits dropped); `123456789012345678` comes back `1.2345678901234568E+17`.
+  - **Temporals:** `Date`, `Time`, `DateTime` (zoneless), and `ZonedDateTime` in **both** forms — a named
+    IANA zone (`{"value":"…","zone":"Europe/Brussels"}`) and a fixed offset (`{"value":"…","zone":"+02:00"}`).
+    The **100-ns temporal boundary** is proven live: a CLR tick (`.1234567`) round-trips exactly; genuine
+    sub-100-ns precision (the documented loss direction) is unreachable from CLR and fails loud on read.
+  - **Bytes** → base64 (`AQIDBA==`); **List** of scalars → ordered array; **Map** of scalars → object;
+    **`Json`** escape hatch → a nested list-of-maps-with-nested-lists round-trips at depth.
+  - **Multi-record / multi-column** envelope (2×2) proves record-array + column ordering live.
+  - **Graph types** by create-then-read-back — `Node`, `Relationship`, `Path` — asserting the §4 envelope
+    structure, labels, type, and properties, and only the *presence* (not the value) of the
+    non-deterministic `elementId`.
+- **Oracle finding (documented, not a bug):** Neo4j returns **map keys in a server-determined order**
+  (observed `gamma, alpha, beta` for insertion order `alpha, beta, gamma`); the serializer faithfully passes
+  that order through. Stable per server, so the exact assertion holds — but callers must not assume map-key
+  order.
+- **Isolation:** a shared `[CollectionDefinition("Neo4jLiveOracle")]` collection fixture groups the live
+  classes so they run **sequentially** and share one driver + one `:AriadneOracleTest` teardown, removing the
+  cross-class collision two independent broad-delete fixtures would risk. Graph tests create only
+  `:AriadneOracleTest` data and clear it before/after. (Feature 09's `CypherExecutorIntegrationTests` joined
+  the same collection — its only change.)
+- **Env-gated + skippable:** reuses Feature 09's `[RequiresNeo4jFact]` (reads `NEO4J_TEST_URI`/`_USER`/
+  `_PASSWORD`). With the vars set, all 21 oracle tests run and pass; unset, they skip and CI stays green.
+- **The headline number: 0 disagreements** — every supported type's live round-trip matched the documented
+  canonical JSON exactly.
+- **Tests: 21 new, suite 340 → 361.** With a live server: 361 pass, 0 skipped. Without: 334 pass, 27 skipped
+  (the 21 oracle + Feature 09's 6 integration tests).
+- **Deliberately not covered:** the deferred `Duration`/`Point`/`OffsetTime` tags — unsupported by design
+  (fail loud), so there is nothing to round-trip.
+
 ## Feature 09 — Query execution: RunCypherRead/Write/AutoCommit + error mapping (`Ariadne.Core.Execution`)
 
 The layer that actually runs a query — the piece that makes Core functionally complete. It wires the Feature 08
