@@ -41,6 +41,6 @@ environments without one.
 
 ## Design specifications
 
-The full type-maps and rules (parameters, results, connection lifecycle, packaging) are maintained as
-detailed specs outside this repo during development and migrate into `docs/` as each feature lands, so
-this repo never documents behaviour that isn't yet built and tested.
+The full type-maps and rules are in [`docs/design/`](design/): [parameters](design/parameters.md),
+[results](design/results.md), [connection lifecycle](design/connection.md), and
+[packaging](design/packaging.md) (the OutSystems Architecture-Canvas layering for the packaged component).
