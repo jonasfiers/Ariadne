@@ -129,12 +129,17 @@ public class CypherSummaryMapperTests
     }
 
     [Fact]
-    public void Unknown_query_type_fails_loud()
+    public void Unknown_query_type_maps_to_unknown_and_does_not_discard_the_summary()
     {
-        // QueryType.Unknown is a real driver value but has no defined short code -> fail loud, don't guess.
-        var ex = Assert.Throws<CypherResultException>(
-            () => CypherSummaryMapper.Map(new FakeSummary { QueryType = QueryType.Unknown }));
-        Assert.Contains("Unknown", ex.Message);
+        // QueryType.Unknown = the server didn't classify the query (a benign, representable state).
+        // It must NOT throw away the whole summary — it maps to "unknown", and counters/timings survive.
+        var s = CypherSummaryMapper.Map(new FakeSummary
+        {
+            QueryType = QueryType.Unknown,
+            Counters = new FakeCounters { NodesCreated = 3 },
+        });
+        Assert.Equal("unknown", s.QueryType);
+        Assert.Equal(3, s.NodesCreated); // the rest of the summary is intact
     }
 
     [Fact]

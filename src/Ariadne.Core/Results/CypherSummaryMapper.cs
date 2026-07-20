@@ -24,9 +24,10 @@ namespace Ariadne.Core.Results;
 /// silently collapsed to <c>0</c> (which would be indistinguishable from a genuine sub-millisecond timing).
 /// </para>
 /// <para>
-/// <b>Fail loud.</b> A <see langword="null"/> summary throws <see cref="ArgumentNullException"/>. The
-/// driver's <see cref="QueryType.Unknown"/> classification and any undefined enum value have no defined
-/// short code, so they throw <see cref="CypherResultException"/> rather than emit a blank or guessed code.
+/// <b>Fail loud.</b> A <see langword="null"/> summary throws <see cref="ArgumentNullException"/>. Only a
+/// genuinely undefined <see cref="QueryType"/> enum value (a driver-version mismatch) throws
+/// <see cref="CypherResultException"/>; the benign <see cref="QueryType.Unknown"/> (server didn't classify)
+/// maps to <c>"unknown"</c> so the rest of the summary survives.
 /// </para>
 /// </remarks>
 public static class CypherSummaryMapper
@@ -38,8 +39,8 @@ public static class CypherSummaryMapper
     /// <returns>The projected, statically-typed summary.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="summary"/> (or its <c>Counters</c>) is null.</exception>
     /// <exception cref="CypherResultException">
-    /// The summary's <see cref="QueryType"/> is <see cref="QueryType.Unknown"/> or an unrecognized value —
-    /// there is no short code to emit, so the mapper fails loud rather than guess.
+    /// The summary's <see cref="QueryType"/> is a genuinely undefined enum value (driver-version mismatch);
+    /// the benign <see cref="QueryType.Unknown"/> maps to <c>"unknown"</c> and does not throw.
     /// </exception>
     public static CypherSummary Map(IResultSummary summary)
     {
@@ -82,7 +83,10 @@ public static class CypherSummaryMapper
 
     /// <summary>
     /// Maps the driver's <see cref="QueryType"/> enum to the spec §2 short code. The known productive set
-    /// maps directly; <see cref="QueryType.Unknown"/> and any undefined value fail loud.
+    /// maps directly. <see cref="QueryType.Unknown"/> is a legitimate, benign state — the server omitted the
+    /// query-type classification (an unrecognized type string is rejected inside the driver and never
+    /// surfaces here) — so it maps to the self-documenting token <c>"unknown"</c> rather than discarding the
+    /// whole summary; only a genuinely undefined enum value (e.g. a future/mismatched driver) fails loud.
     /// </summary>
     private static string ToShortCode(QueryType queryType) => queryType switch
     {
@@ -90,9 +94,10 @@ public static class CypherSummaryMapper
         QueryType.ReadWrite => "rw",
         QueryType.WriteOnly => "w",
         QueryType.SchemaWrite => "s",
+        QueryType.Unknown => "unknown", // server didn't classify the query — representable, not corruption (P1)
         _ => throw new CypherResultException(
-            $"Cypher result summary has an unmappable QueryType '{queryType}' (numeric {(int)queryType}): " +
-            "there is no defined short code for it, so the mapper fails loud rather than emit a blank or " +
-            "guessed classification."),
+            $"Cypher result summary has an undefined QueryType (numeric {(int)queryType}) not present in the " +
+            "driver enum — a driver-version mismatch. The mapper fails loud rather than emit a guessed " +
+            "classification."),
     };
 }
