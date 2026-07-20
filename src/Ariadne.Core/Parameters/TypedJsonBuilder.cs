@@ -249,10 +249,19 @@ internal static class TypedJsonBuilder
         return ScalarValueFactory.BuildZoned(dt, zoneId, offsetMinutes, $"Typed-JSON node at {path}");
     }
 
+    // Strict, zoneless ISO-8601 formats — deliberately WITHOUT any zone designator ('Z'/offset) token, so
+    // a zone-bearing string is rejected rather than silently host-timezone-shifted. The zone of a
+    // ZonedDateTime is carried separately in "$zone"/"$offsetMinutes", never parsed from "$value".
+    private static readonly string[] DateFormats = { "yyyy-MM-dd" };
+    private static readonly string[] TimeFormats = { "HH:mm:ss", "HH:mm:ss.FFFFFFF" };
+    private static readonly string[] DateTimeFormats = { "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ss.FFFFFFF" };
+
     /// <summary>
-    /// Reads and ISO-8601-parses the <c>$value</c> of a temporal node into a zoneless
-    /// <see cref="DateTime"/> (each temporal builder then takes the part it needs). The string is parsed
-    /// with the invariant culture and no styles, so a zoneless wall-clock stays <see cref="DateTimeKind.Unspecified"/>.
+    /// Reads and strictly ISO-8601-parses the zoneless <c>$value</c> of a temporal node into a
+    /// <see cref="DateTimeKind.Unspecified"/> <see cref="DateTime"/> (each temporal builder then takes the
+    /// part it needs). Parsing is exact (invariant culture, explicit formats with no zone token), so a
+    /// value carrying a zone designator (<c>Z</c> or an offset) or a non-ISO layout (e.g. <c>09/01/2024</c>)
+    /// is rejected loudly rather than silently shifted to the host timezone or misread.
     /// </summary>
     private static DateTime ParseDateTime(JsonElement node, string path, string type)
     {
@@ -261,10 +270,53 @@ internal static class TypedJsonBuilder
             throw WrongValue(path, type, "an ISO-8601 string", v.ValueKind);
 
         var s = v.GetString();
-        if (!DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+        var formats = type.ToUpperInvariant() switch
+        {
+            "DATE" => DateFormats,
+            "TIME" => TimeFormats,
+            _ => DateTimeFormats, // DateTime, ZonedDateTime
+        };
+
+        // Neo4j emits nanosecond (9-digit) fractions; CLR DateTime resolves to 100 ns (7 digits). Accept a
+        // longer fraction only when the extra digits are zero (lossless); a genuine sub-100-ns value is
+        // rejected loudly rather than silently truncated.
+        if (s is not null && !TryNormalizeSubsecond(s, out s))
             throw new CypherParameterException(
-                $"Typed-JSON node at {path} (type '{type}') has a \"$value\" '{s}' that is not a valid ISO-8601 {type}.");
+                $"Typed-JSON node at {path} (type '{type}') has a \"$value\" with sub-100-nanosecond precision " +
+                "that cannot be represented (a maximum of 7 fractional-second digits is supported).");
+
+        if (s is null ||
+            !DateTime.TryParseExact(s, formats, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dt))
+            throw new CypherParameterException(
+                $"Typed-JSON node at {path} (type '{type}') has a \"$value\" '{v.GetString()}' that is not a valid " +
+                $"zoneless ISO-8601 {type}. A zone designator ('Z' or an offset) is not allowed in \"$value\"; carry " +
+                "the zone in \"$zone\"/\"$offsetMinutes\".");
         return dt;
+    }
+
+    /// <summary>
+    /// Normalizes a fractional-second run longer than 7 digits: if every digit past the 7th is zero the
+    /// extra zeros are trimmed (lossless), and the (normalized) string is returned via <paramref name="s"/>;
+    /// if any digit past the 7th is non-zero the value carries unrepresentable sub-100-ns precision and
+    /// <see langword="false"/> is returned. Strings with a ≤7-digit fraction, or no fraction, pass through
+    /// unchanged (any other malformation is left for the strict format parse to reject).
+    /// </summary>
+    private static bool TryNormalizeSubsecond(string s, out string normalized)
+    {
+        normalized = s;
+        int dot = s.IndexOf('.');
+        if (dot < 0) return true;
+
+        int i = dot + 1;
+        while (i < s.Length && char.IsDigit(s[i])) i++;
+        int fracLen = i - (dot + 1);
+        if (fracLen <= 7) return true; // representable; the format parse handles it
+
+        for (int k = dot + 1 + 7; k < i; k++)
+            if (s[k] != '0') return false; // real sub-100-ns precision → caller fails loud
+
+        normalized = s.Substring(0, dot + 1 + 7) + s.Substring(i); // drop the trailing zero digits only
+        return true;
     }
 
     private static JsonElement RequireValue(JsonElement node, string path, string type)

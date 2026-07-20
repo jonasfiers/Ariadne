@@ -24,6 +24,10 @@ namespace Ariadne.Core.Parameters;
 /// </remarks>
 internal static class ScalarValueFactory
 {
+    /// <summary>Maximum magnitude of a UTC offset in minutes (±18:00), matching the ISO/driver bound.</summary>
+    private const int MaxOffsetMinutes = 18 * 60;
+
+
     /// <summary>Builds a driver <see cref="LocalDate"/> from the date part of <paramref name="dt"/> (time ignored).</summary>
     public static LocalDate BuildDate(DateTime dt)
         => new LocalDate(dt.Year, dt.Month, dt.Day);
@@ -73,6 +77,12 @@ internal static class ScalarValueFactory
 
         if (offsetMinutes is int minutes)
         {
+            // A UTC offset is bounded to ±18:00; reject absurd values loudly rather than let
+            // minutes×60 overflow into a silently wrong offset.
+            if (minutes < -MaxOffsetMinutes || minutes > MaxOffsetMinutes)
+                throw new CypherParameterException(
+                    $"{context} has an OffsetMinutes of {minutes}, outside the valid range ±{MaxOffsetMinutes} (±18:00).");
+
             // The driver takes offset seconds.
             return new ZonedDateTime(normalized, minutes * 60);
         }

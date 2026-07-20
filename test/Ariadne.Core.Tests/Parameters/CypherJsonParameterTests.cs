@@ -470,4 +470,90 @@ public class CypherJsonParameterTests
             """);
         Assert.Contains("$.outer.inner", ex.Message);
     }
+
+    // ---------- regression: strict, zoneless, host-timezone-independent ISO parsing ----------
+
+    // A zone designator in $value must be REJECTED, never silently shifted to the host timezone
+    // (previously DateTime.TryParse turned '...Z' / '+05:00' into a host-TZ-dependent wall-clock).
+    [Theory]
+    [InlineData("""{"$type":"DateTime","$value":"2024-09-01T10:30:00Z"}""")]
+    [InlineData("""{"$type":"DateTime","$value":"2024-09-01T10:30:00+05:00"}""")]
+    [InlineData("""{"$type":"ZonedDateTime","$value":"2024-09-01T10:30:00Z","$zone":"Europe/Brussels"}""")]
+    [InlineData("""{"$type":"Time","$value":"10:30:00Z"}""")]
+    public void Json_temporal_with_zone_in_value_is_rejected(string json)
+    {
+        var ex = Throws(json);
+        Assert.Contains("zone", ex.Message);
+    }
+
+    // Non-ISO / ambiguous layouts must be rejected (previously TryParse accepted "1/2/2024" → 2 Jan).
+    [Theory]
+    [InlineData("""{"$type":"Date","$value":"09/01/2024"}""")]
+    [InlineData("""{"$type":"Date","$value":"1/2/2024"}""")]
+    [InlineData("""{"$type":"Date","$value":"2024-9-1"}""")]
+    [InlineData("""{"$type":"DateTime","$value":"2024-09-01 10:30:00"}""")]
+    public void Json_non_iso_temporal_is_rejected(string json)
+    {
+        Assert.Throws<CypherParameterException>(() => MapJson(json));
+    }
+
+    [Fact]
+    public void Json_bare_iso_datetime_with_fraction_still_parses_with_full_precision()
+    {
+        var v = MapJson("""{"$type":"DateTime","$value":"2024-09-01T10:30:00.1234567"}""");
+        var ldt = Assert.IsType<LocalDateTime>(v);
+        Assert.Equal(10, ldt.Hour);
+        Assert.Equal(123456700, ldt.Nanosecond);
+    }
+
+    [Fact]
+    public void Json_nanosecond_zero_padding_past_100ns_is_accepted_losslessly()
+    {
+        // Neo4j's native 9-digit fraction, zero-padded past the 100ns place, is accepted (trimmed losslessly).
+        var v = MapJson("""{"$type":"Time","$value":"10:30:00.123456700"}""");
+        var lt = Assert.IsType<LocalTime>(v);
+        Assert.Equal(123456700, lt.Nanosecond);
+    }
+
+    [Fact]
+    public void Json_true_subnanosecond_precision_is_rejected_not_truncated()
+    {
+        // Non-zero digits past the 100ns (7th) place cannot be represented → fail loud, never silently truncate.
+        var ex = Throws("""{"$type":"Time","$value":"10:30:00.123456789"}""");
+        Assert.Contains("precision", ex.Message);
+    }
+
+    // ---------- regression: offset-minutes range guard (shared factory; both Json and scalar paths) ----------
+
+    [Fact]
+    public void Json_zoned_offset_out_of_range_is_rejected()
+    {
+        var ex = Throws("""{"$type":"ZonedDateTime","$value":"2024-09-01T10:30:00","$offsetMinutes":2000}""");
+        Assert.Contains("range", ex.Message);
+    }
+
+    [Theory]
+    [InlineData(2000)]
+    [InlineData(-2000)]
+    [InlineData(1081)]
+    public void Scalar_zoned_offset_out_of_range_is_rejected(int offsetMinutes)
+    {
+        Assert.Throws<CypherParameterException>(() => MapScalar(new CypherParameter
+        {
+            Name = "z", Type = "ZonedDateTime",
+            DateTimeValue = new DateTime(2024, 9, 1, 10, 30, 0), OffsetMinutes = offsetMinutes
+        }));
+    }
+
+    [Fact]
+    public void Scalar_zoned_offset_at_boundary_is_accepted()
+    {
+        var v = MapScalar(new CypherParameter
+        {
+            Name = "z", Type = "ZonedDateTime",
+            DateTimeValue = new DateTime(2024, 9, 1, 10, 30, 0), OffsetMinutes = 1080 // ±18:00
+        });
+        var zdt = Assert.IsType<ZonedDateTime>(v);
+        Assert.Equal(1080 * 60, zdt.OffsetSeconds);
+    }
 }
