@@ -2,6 +2,53 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 08 — Connection foundation: driver-singleton cache + auth + connectivity (`Ariadne.Core.Connection`)
+
+The start of the connection layer (connection spec §1/§2/§5/§7/§10) and the cardinal rule of the whole
+connector: an `IDriver` is a **process-lifetime singleton per connection identity, never per-call** (a
+driver-per-call = connection storms). Built behind a mockable factory seam so the cache/auth/connectivity
+logic is fully unit-testable with hand-rolled fakes and **zero network** (there is no live Neo4j here). No
+query execution / sessions / cursors (Feature 09), no driver-exception → OutSystems error mapping table yet.
+
+- **`ConnConfig`** (POCO) — connection identity + optional §7 tuning: `Uri`, `AuthScheme` (default `Basic`),
+  `Username`, `Password`, `BearerToken`, `Database`, and the nullable knobs `MaxConnectionPoolSize`,
+  `ConnectionAcquisitionTimeout`, `MaxTransactionRetryTime`, `FetchSize` ("null ⇒ driver default"). TLS is
+  carried by the URI scheme only (spec §6) — deliberately **no** encryption knob, since the 5.x driver
+  throws if scheme- and config-based encryption disagree.
+- **`AuthTokenBuilder.BuildAuthToken(ConnConfig)`** (static) — `Basic` → `AuthTokens.Basic(user, password)`,
+  `Bearer` → `AuthTokens.Bearer(token)`, `None` → `AuthTokens.None` (verified: `None` is a static
+  **property**, not a method). Scheme compared case-insensitively; any unknown/out-of-scope value
+  (`Kerberos`/`Custom`/empty) **fails loud** with a named `ConnectionException` that never echoes a credential.
+- **`IDriverFactory`** seam + production **`GraphDatabaseDriverFactory`** — `IDriver Create(ConnConfig)`. The
+  production impl calls `GraphDatabase.Driver(uri, authToken, o => o.With…())`, applying only the non-null
+  §7 knobs. Tests inject a fake factory returning a fake `IDriver` — no network.
+- **`DriverCache`** (instance `IDisposable`) — a `ConcurrentDictionary<string, Lazy<IDriver>>`. `GetDriver`
+  does `GetOrAdd(CacheKey, _ => new Lazy<IDriver>(() => factory.Create(config), ExecutionAndPublication)).Value`
+  → **exactly one driver per key even under concurrent first calls** (proven with 32 threads gated to collide
+  inside `GetOrAdd`; factory invoked exactly once). **`CacheKey`** =
+  `Uri | Username | Database | AuthScheme | SHA-256(secret) | configFingerprint` — the raw password/bearer
+  token is **never** in the key (only its hash), so a rotated secret → different key → fresh driver, with the
+  secret never materialized in the dictionary. `Reset(config)` / `ResetAll()` / `Dispose()` evict and dispose
+  cached drivers (only realized `Lazy` values are disposed — never forcing construction just to dispose it).
+- **`AsyncBridge.RunSync`** (static) — the sync-over-async bridge (spec §2) via
+  `.ConfigureAwait(false).GetAwaiter().GetResult()`, **not** `.Result`/`.Wait()`; a faulted task surfaces the
+  **original** exception (asserted), not an `AggregateException`, which the Feature 09 error mapping depends on.
+- **`ConnectivityVerifier.VerifyConnectivity(ConnConfig)`** (spec §10) + **`ConnectivityResult`** — obtains the
+  cached driver and blocks on `driver.VerifyConnectivityAsync()` via `RunSync`; a reachable server →
+  `ConnectivityResult.Success`, a driver-reported connectivity failure → a typed result (never an unhandled
+  throw). A *configuration* error (bad auth scheme) still propagates loudly — resolved spec ambiguity: only
+  the connectivity call is wrapped, programmer errors stay loud.
+- **Verified against the real Neo4j.Driver 5.28.3 API** (by reflection): `GraphDatabase.Driver(string,
+  IAuthToken, Action<ConfigBuilder>)`; `AuthTokens.Basic/Bearer` (methods) + `AuthTokens.None` (static
+  property, with value equality on tokens); `IDriver : IDisposable, IAsyncDisposable` with
+  `VerifyConnectivityAsync() : Task`; `ConfigBuilder.WithMaxConnectionPoolSize(int)` /
+  `WithConnectionAcquisitionTimeout(TimeSpan)` / `WithMaxTransactionRetryTime(TimeSpan)` / `WithFetchSize(long)`.
+- **43 new tests** (264 → **307**), all green. Pure logic + hand-rolled `IDriverFactory`/`IDriver` fakes (no
+  server, no mocking libraries): auth per scheme + fail-loud + no-secret-leak; `RunSync` original-exception
+  surfacing (including a genuinely-async fault) and value return; one-driver-per-key (same/different
+  uri/user/db/scheme/knob), 32-thread concurrency, secret-excluded + rotating cache key, `Reset`/`ResetAll`/
+  `Dispose` disposal, and connectivity success / typed-failure / loud-config-error.
+
 ## Feature 07 — Result summary / counters mapping: `CypherSummary` (`Ariadne.Core`)
 
 The last result-side piece before the connection/execution layer: a **pure projection** of the driver's
