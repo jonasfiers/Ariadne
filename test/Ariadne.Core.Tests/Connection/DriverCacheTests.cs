@@ -282,4 +282,45 @@ public class DriverCacheTests
 
         Assert.Equal(distinct, factory.CreateCount);
     }
+
+    // Regression (review Finding 1): a failed driver build must NOT poison the key forever —
+    // the faulted Lazy is evicted so the next GetDriver retries the build.
+    [Fact]
+    public void Failed_driver_build_is_evicted_and_retried_not_poisoned()
+    {
+        int calls = 0;
+        var factory = new FakeDriverFactory(_ =>
+        {
+            calls++;
+            if (calls == 1) throw new InvalidOperationException("transient build failure");
+            return new FakeDriver();
+        });
+        using var cache = new DriverCache(factory);
+        ConnConfig config = BasicConfig();
+
+        Assert.Throws<InvalidOperationException>(() => cache.GetDriver(config)); // 1st build throws...
+        IDriver driver = cache.GetDriver(config);                               // ...2nd RETRIES (not a cached exception)
+        Assert.NotNull(driver);
+        Assert.Equal(2, calls);                                                 // the build actually ran twice
+    }
+
+    // Regression (review Finding 2): equivalent auth-scheme spellings collapse to ONE driver identity.
+    [Fact]
+    public void Equivalent_auth_scheme_spellings_share_one_driver()
+    {
+        var factory = new FakeDriverFactory();
+        using var cache = new DriverCache(factory);
+        ConnConfig Cfg(string scheme) => new ConnConfig
+        {
+            Uri = "neo4j+s://host:7687", Username = "neo4j", Password = "secret", Database = "neo4j", AuthScheme = scheme,
+        };
+
+        IDriver d1 = cache.GetDriver(Cfg("Basic"));
+        IDriver d2 = cache.GetDriver(Cfg("basic"));
+        IDriver d3 = cache.GetDriver(Cfg(" Basic "));
+
+        Assert.Same(d1, d2);
+        Assert.Same(d1, d3);
+        Assert.Equal(1, factory.CreateCount);
+    }
 }

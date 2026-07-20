@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -64,10 +65,23 @@ public sealed class DriverCache : IDisposable
 
         // GetOrAdd's factory may run more than once under contention, but only one Lazy is stored; the
         // Lazy (ExecutionAndPublication) then ensures Create() runs at most once for that winner.
-        return _drivers.GetOrAdd(
-            CacheKey(config),
-            _ => new Lazy<IDriver>(() => _factory.Create(config), LazyThreadSafetyMode.ExecutionAndPublication))
-            .Value;
+        string key = CacheKey(config);
+        Lazy<IDriver> lazy = _drivers.GetOrAdd(
+            key,
+            _ => new Lazy<IDriver>(() => _factory.Create(config), LazyThreadSafetyMode.ExecutionAndPublication));
+        try
+        {
+            return lazy.Value;
+        }
+        catch
+        {
+            // A faulted Lazy (ExecutionAndPublication) caches its exception and would re-throw it forever,
+            // poisoning this key. Evict THIS exact faulted entry (value-checked remove, so a concurrent
+            // successful rebuild is never clobbered) so the next GetDriver retries the build.
+            ((ICollection<KeyValuePair<string, Lazy<IDriver>>>)_drivers)
+                .Remove(new KeyValuePair<string, Lazy<IDriver>>(key, lazy));
+            throw;
+        }
     }
 
     /// <summary>
@@ -97,12 +111,16 @@ public sealed class DriverCache : IDisposable
             config.MaxTransactionRetryTime?.Ticks.ToString() ?? string.Empty,
             config.FetchSize?.ToString() ?? string.Empty);
 
+        // Normalize the scheme the same way auth resolution does (trim + case-insensitive) so equivalent
+        // spellings ("Basic"/"basic"/" Basic ") collapse to ONE driver identity instead of separate pools.
+        string scheme = (config.AuthScheme ?? string.Empty).Trim().ToUpperInvariant();
+
         return string.Join(
             "|",
             config.Uri ?? string.Empty,
             config.Username ?? string.Empty,
             config.Database ?? string.Empty,
-            config.AuthScheme ?? string.Empty,
+            scheme,
             secretHash,
             fingerprint);
     }
