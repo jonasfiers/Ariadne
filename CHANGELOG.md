@@ -2,6 +2,39 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 11 — `Ariadne.Extension` action surface (`Neo4jBoltActions`)
+
+The thin C# action surface an OutSystems Integration Studio Extension is generated from — plain methods
+wrapping `Ariadne.Core`, shaped the OutSystems way (a `bool` success result, inputs first, outputs as `out`,
+`out string errorMessage` last) with **no exception ever crossing the boundary**. The actual Integration
+Studio import is manual Windows work (out of scope); this C# is buildable and testable now. Mirrors the
+sibling PICASSO `PicassoActions` pattern.
+
+- **`public sealed class Neo4jBoltActions`** (plain class, no OutSystems base type) with five actions:
+  - `RunCypherRead` / `RunCypherWrite` / `RunCypherAutoCommit` —
+    `(ConnConfig connection, string query, CypherParameter[] parameters, out string recordsJson,
+    out string[] columns, out CypherSummary summary, out string errorMessage)`. Parameters arrive as a
+    **typed `CypherParameter[]` Structure list** (the differentiator — not a JSON string); the dynamic
+    record set comes back as `recordsJson` Text, the fixed-shape summary as the typed `CypherSummary`.
+  - `VerifyConnectivity` — `(ConnConfig connection, out bool ok, out string errorMessage)`.
+  - `ResetDriver` — `(ConnConfig connection, out string errorMessage)`.
+- **Process-lifetime singletons:** a `static readonly DriverCache` + one shared `CypherExecutor` over it,
+  reused by every instance — never per-call (the whole point of the connection layer). An `internal`
+  test-seam constructor injects an executor/cache wired to a fake `IDriverFactory`; the public parameterless
+  constructor binds to the shared singletons.
+- **Boundary discipline (still fail-loud):** every Core exception — `CypherExecutionException`,
+  `CypherParameterException`, `ConnectionException`, `CypherResultException`, or anything else — is caught
+  and returned as `false` + a populated `errorMessage`, with the outputs reset to safe defaults; nothing
+  throws across the surface. A `CypherExecutionException` is shaped by its `Classification` (`Query error:` vs
+  `Connection error:`). The password is **never** folded into a message (Core avoids it; this surface
+  preserves that).
+- **Tests (`test/Ariadne.Extension.Tests`, added to `Ariadne.slnx`):** 21 total. 18 headless unit tests
+  inject a fake executor/cache (no server) proving success→`true`+mapped outputs, each exception type→`false`
+  + a credential-free message with **no throw**, and that two default instances share one static
+  cache/executor. 3 env-gated `[RequiresNeo4jFact]` integration tests (CREATE→read-back, VerifyConnectivity
+  good, bad-password→`false`/`ok=false`) run against the live Neo4j and **skip** when the env vars are unset.
+  Core's 361 tests unchanged and green.
+
 ## Feature 10 — The round-trip oracle (live-Neo4j integration tests)
 
 The differentiator proof — the PICASSO-GnuCOBOL analogue. A systematic, **test-only**, end-to-end validation

@@ -12,4 +12,9 @@
     <ProjectReference Include="../Ariadne.Core/Ariadne.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The test project injects a fake executor/cache via the internal test-seam constructor. -->
+    <InternalsVisibleTo Include="Ariadne.Extension.Tests" />
+  </ItemGroup>
+
 </Project>
