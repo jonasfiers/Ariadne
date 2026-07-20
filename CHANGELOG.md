@@ -2,6 +2,28 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 02 — Composite parameters: List + Map (`Ariadne.Core`)
+
+The two **flat, one-level** composite types, layered on Feature 01 by reusing the exact scalar path for
+each element (no duplicated type switch). Nesting fails loud — that is the future `Json` escape hatch's
+job (Feature 03, Decision B), not this feature's.
+
+- **`CypherListElement`** / **`CypherMapEntry`** — POCOs mirroring the OutSystems structures: the same
+  scalar value carriers as `CypherParameter`, with **no recursion** (`CypherMapEntry` adds a `Key`,
+  neither has composite carriers). New `ListElements` / `MapEntries` carriers on `CypherParameter`.
+- **`List` → `IList<object?>`**, **`Map` → `IDictionary<string, object?>`** (ordinal/case-sensitive keys),
+  each element/entry mapped through the **shared scalar path**. New `internal IScalarCarrier` interface
+  unifies how the mapper *reads* the carriers, so a top-level scalar and a List/Map element run the exact
+  same code — the Feature 01 scalar behaviour (incl. `DateTime.Kind` normalization for `ZonedDateTime`)
+  applies to elements unchanged, verified by test.
+- **Fail-loud rules** (all `CypherParameterException`, naming the parameter and — for maps — the `Key`):
+  a `List`/`Map`/`Json` element/entry type → throw pointing to the `Json` parameter for nesting; a
+  deferred/unknown element type → throw; an empty/whitespace or duplicate map `Key` → throw; a `List`/`Map`
+  tag with a **null** carrier → throw (missing carrier); a null element/entry → throw (never silently
+  dropped). An **empty** list/map is valid → empty container.
+- **Out of scope (fail loud here, land later):** the `Json` escape hatch (Feature 03), any nesting
+  (list-of-lists, map-of-maps, …), and the deferred temporals/spatials (`Duration`/`Point`/`OffsetTime`).
+
 ## Feature 01 — Scalar parameter mapping (`Ariadne.Core`)
 
 The typed-parameter core: turn caller-supplied, explicitly-typed **scalar** parameters into the exact

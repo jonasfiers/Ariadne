@@ -12,8 +12,9 @@ namespace Ariadne.Core.Parameters;
 /// <para>
 /// This is pure logic: it builds and returns a plain dictionary and opens no driver, session, or
 /// connection. Only the <b>scalar</b> tag subset is implemented here. Composite tags
-/// (<c>List</c>/<c>Map</c>/<c>Json</c>) and deferred tags (<c>Duration</c>/<c>Point</c>/<c>OffsetTime</c>)
-/// intentionally hit the fail-loud default and throw <see cref="CypherParameterException"/>.
+/// (<c>List</c>/<c>Map</c>) are mapped by reusing the scalar path for each element; the <c>Json</c>
+/// escape hatch and the deferred tags (<c>Duration</c>/<c>Point</c>/<c>OffsetTime</c>) intentionally
+/// hit the fail-loud default and throw <see cref="CypherParameterException"/>.
 /// </para>
 /// <para>
 /// Design philosophy (inherited from PICASSO): fail loud, never silently miscompute. Every
@@ -79,90 +80,187 @@ public static class CypherParameterMapper
 
     private static object? BuildValue(CypherParameter p)
     {
-        // Case-insensitive tag matching per the spec.
+        // The two flat composites are handled here; everything else — every scalar tag, plus the
+        // fail-loud rejection of Json/deferred/unknown tags — goes through the single shared scalar
+        // path (MapScalar), which is the SAME path used for each List element and Map entry.
         switch ((p.Type ?? string.Empty).ToUpperInvariant())
         {
+            case "LIST":
+                return BuildList(p);
+
+            case "MAP":
+                return BuildMap(p);
+
+            default:
+                return MapScalar(p.Type, p, $"Cypher parameter '{p.Name}'");
+        }
+    }
+
+    /// <summary>
+    /// The one and only scalar-mapping path. Maps a single scalar <paramref name="type"/> tag reading
+    /// its value through <paramref name="carrier"/>, and is called identically for a top-level scalar
+    /// parameter and for each element of a flat <c>List</c>/<c>Map</c>. Any composite
+    /// (<c>List</c>/<c>Map</c>/<c>Json</c>), deferred, or unknown tag is rejected here, so a nested
+    /// composite element fails loud in exactly one place.
+    /// </summary>
+    /// <param name="type">The scalar type tag (case-insensitive).</param>
+    /// <param name="carrier">The value carrier to read the scalar from.</param>
+    /// <param name="context">
+    /// A human-readable descriptor of what is being mapped (e.g. <c>Cypher parameter 'foo'</c> or
+    /// <c>Cypher parameter 'foo' list element [2]</c>), used verbatim in every error message.
+    /// </param>
+    private static object? MapScalar(string? type, IScalarCarrier carrier, string context)
+    {
+        // Case-insensitive tag matching per the spec.
+        switch ((type ?? string.Empty).ToUpperInvariant())
+        {
             case "STRING":
-                return Required(p, p.StringValue, "StringValue");
+                return Required(carrier.StringValue, context, type, "StringValue");
 
             case "INTEGER":
                 // Neo4j Integer is Int64; the carrier is already long.
-                return Required(p, p.IntegerValue, "IntegerValue");
+                return Required(carrier.IntegerValue, context, type, "IntegerValue");
 
             case "BOOLEAN":
-                return Required(p, p.BooleanValue, "BooleanValue");
+                return Required(carrier.BooleanValue, context, type, "BooleanValue");
 
             case "FLOAT":
                 // Neo4j has no decimal type; Float (IEEE-754 double) is the only target.
                 // (double)decimal is always finite and in range, so the "reject non-finite" rule
                 // cannot trigger from this carrier. Precision loss is expected and documented.
-                return (double)Required(p, p.FloatValue, "FloatValue");
+                return (double)Required(carrier.FloatValue, context, type, "FloatValue");
 
             case "DATE":
             {
-                var dt = RequiredDateTime(p);
+                var dt = RequiredDateTime(carrier, context, type);
                 return new LocalDate(dt.Year, dt.Month, dt.Day);
             }
 
             case "TIME":
             {
-                var dt = RequiredDateTime(p);
+                var dt = RequiredDateTime(carrier, context, type);
                 return new LocalTime(dt.Hour, dt.Minute, dt.Second, NanosecondOfSecond(dt));
             }
 
             case "DATETIME":
                 // Decision A: zoneless. Never fabricate a zone.
             {
-                var dt = RequiredDateTime(p);
+                var dt = RequiredDateTime(carrier, context, type);
                 return new LocalDateTime(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second,
                     NanosecondOfSecond(dt));
             }
 
             case "ZONEDDATETIME":
-                return BuildZoned(p);
+                return BuildZoned(carrier, context);
 
             case "BYTES":
-                return Required(p, p.BytesValue, "BytesValue");
+                return Required(carrier.BytesValue, context, type, "BytesValue");
 
             case "NULL":
                 return null;
 
-            default:
-                // Unknown, composite (List/Map/Json), or deferred (Duration/Point/OffsetTime) tag.
+            case "LIST":
+            case "MAP":
+            case "JSON":
+                // A composite tag where only a scalar is allowed — i.e. nesting. Flat List/Map elements
+                // must be scalar; nested structures are the `Json` parameter's job (Decision B, rule 8).
                 throw new CypherParameterException(
-                    $"Cypher parameter '{p.Name}' has unsupported type '{p.Type}'.");
+                    $"{context} has composite type '{type}'; flat List/Map elements must be scalar — " +
+                    "use the `Json` parameter type for nested structures.");
+
+            default:
+                // Unknown or deferred (Duration/Point/OffsetTime) tag.
+                throw new CypherParameterException(
+                    $"{context} has unsupported type '{type}'.");
         }
     }
 
-    private static ZonedDateTime BuildZoned(CypherParameter p)
+    private static IList<object?> BuildList(CypherParameter p)
+    {
+        var elements = p.ListElements;
+        if (elements is null)
+            throw new CypherParameterException(
+                $"Cypher parameter '{p.Name}' (type 'List') is missing its ListElements.");
+
+        // An empty list is valid — it maps to an empty driver list.
+        var result = new List<object?>(elements.Count);
+        for (var i = 0; i < elements.Count; i++)
+        {
+            var element = elements[i];
+            if (element is null)
+                throw new CypherParameterException(
+                    $"Cypher parameter '{p.Name}' list element [{i}] is null.");
+
+            // Same scalar path as a top-level scalar — nesting fails loud inside MapScalar.
+            result.Add(MapScalar(element.Type, element, $"Cypher parameter '{p.Name}' list element [{i}]"));
+        }
+
+        return result;
+    }
+
+    private static IDictionary<string, object?> BuildMap(CypherParameter p)
+    {
+        var entries = p.MapEntries;
+        if (entries is null)
+            throw new CypherParameterException(
+                $"Cypher parameter '{p.Name}' (type 'Map') is missing its MapEntries.");
+
+        // Cypher map keys are case-sensitive (A and a are distinct), matching the parameter-name rule.
+        var result = new Dictionary<string, object?>(StringComparer.Ordinal);
+        for (var i = 0; i < entries.Count; i++)
+        {
+            var entry = entries[i];
+            if (entry is null)
+                throw new CypherParameterException(
+                    $"Cypher parameter '{p.Name}' map entry [{i}] is null.");
+
+            var key = entry.Key;
+            if (string.IsNullOrWhiteSpace(key))
+                throw new CypherParameterException(
+                    $"Cypher parameter '{p.Name}' has a map entry (index {i}) with an empty or whitespace Key.");
+
+            if (result.ContainsKey(key))
+                throw new CypherParameterException(
+                    $"Cypher parameter '{p.Name}' has a duplicate map Key '{key}' " +
+                    "(Cypher map keys are case-sensitive; last-write-wins would silently drop a value).");
+
+            // Same scalar path as a top-level scalar — nesting fails loud inside MapScalar.
+            result[key] = MapScalar(entry.Type, entry, $"Cypher parameter '{p.Name}' map entry with Key '{key}'");
+        }
+
+        return result;
+    }
+
+    private static ZonedDateTime BuildZoned(IScalarCarrier carrier, string context)
     {
         // Normalize away the hidden DateTime.Kind flag so the wall-clock is interpreted literally in
         // the supplied zone — never UTC-shifted (Kind=Utc, a silent miscompute) nor offset-validated
-        // and rejected (Kind=Local). Behaviour must not depend on Kind (design principle 5).
-        var dt = DateTime.SpecifyKind(RequiredDateTime(p), DateTimeKind.Unspecified);
+        // and rejected (Kind=Local). Behaviour must not depend on Kind (design principle 5). This holds
+        // identically for a top-level scalar and for a List/Map element, since all share this path.
+        var dt = DateTime.SpecifyKind(RequiredDateTime(carrier, context, "ZonedDateTime"), DateTimeKind.Unspecified);
 
         // A zone is only ever produced when the caller supplied one — never invented.
-        if (!string.IsNullOrEmpty(p.ZoneId))
+        if (!string.IsNullOrEmpty(carrier.ZoneId))
         {
             try
             {
-                return new ZonedDateTime(dt, p.ZoneId);
+                return new ZonedDateTime(dt, carrier.ZoneId);
             }
             catch (Exception ex)
             {
                 throw new CypherParameterException(
-                    $"Cypher parameter '{p.Name}' has an invalid ZoneId '{p.ZoneId}'.", ex);
+                    $"{context} has an invalid ZoneId '{carrier.ZoneId}'.", ex);
             }
         }
 
-        if (p.OffsetMinutes is int minutes)
+        if (carrier.OffsetMinutes is int minutes)
         {
             // The driver takes offset seconds.
             return new ZonedDateTime(dt, minutes * 60);
         }
 
         throw new CypherParameterException(
-            $"Cypher parameter '{p.Name}' is ZonedDateTime but supplies neither ZoneId nor OffsetMinutes " +
+            $"{context} is ZonedDateTime but supplies neither ZoneId nor OffsetMinutes " +
             "(a zone is never fabricated).");
     }
 
@@ -170,24 +268,24 @@ public static class CypherParameterMapper
     private static int NanosecondOfSecond(DateTime dt)
         => (int)(dt.Ticks % TimeSpan.TicksPerSecond) * 100;
 
-    private static DateTime RequiredDateTime(CypherParameter p)
+    private static DateTime RequiredDateTime(IScalarCarrier carrier, string context, string? type)
     {
-        if (p.DateTimeValue is DateTime dt) return dt;
+        if (carrier.DateTimeValue is DateTime dt) return dt;
         throw new CypherParameterException(
-            $"Cypher parameter '{p.Name}' (type '{p.Type}') is missing its DateTimeValue.");
+            $"{context} (type '{type}') is missing its DateTimeValue.");
     }
 
-    private static T Required<T>(CypherParameter p, T? value, string carrier) where T : struct
+    private static T Required<T>(T? value, string context, string? type, string carrier) where T : struct
     {
         if (value is T v) return v;
         throw new CypherParameterException(
-            $"Cypher parameter '{p.Name}' (type '{p.Type}') is missing its {carrier}.");
+            $"{context} (type '{type}') is missing its {carrier}.");
     }
 
-    private static T Required<T>(CypherParameter p, T? value, string carrier) where T : class
+    private static T Required<T>(T? value, string context, string? type, string carrier) where T : class
     {
         if (value is T v) return v;
         throw new CypherParameterException(
-            $"Cypher parameter '{p.Name}' (type '{p.Type}') is missing its {carrier}.");
+            $"{context} (type '{type}') is missing its {carrier}.");
     }
 }

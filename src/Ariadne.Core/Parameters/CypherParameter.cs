@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Ariadne.Core.Parameters;
 
@@ -11,10 +12,11 @@ namespace Ariadne.Core.Parameters;
 /// The caller always knows a parameter's type when they build it, so the fat-struct-with-one-carrier
 /// shape is deliberate and correct for static, known-typed input. Only the <b>scalar</b> subset is
 /// mapped by <see cref="CypherParameterMapper.BuildParameters"/> in this feature; composite
-/// (<c>List</c>/<c>Map</c>/<c>Json</c>) and deferred (<c>Duration</c>/<c>Point</c>/<c>OffsetTime</c>)
-/// tags exist in the spec but currently fail loud.
+/// (<c>List</c>/<c>Map</c>) and scalar tags are mapped by
+/// <see cref="CypherParameterMapper.BuildParameters"/>; the <c>Json</c> escape hatch and the deferred
+/// (<c>Duration</c>/<c>Point</c>/<c>OffsetTime</c>) tags exist in the spec but currently fail loud.
 /// </remarks>
-public sealed class CypherParameter
+public sealed class CypherParameter : IScalarCarrier
 {
     /// <summary>The Cypher identifier this parameter binds to, without the leading <c>$</c>.</summary>
     public string Name { get; set; } = string.Empty;
@@ -63,4 +65,19 @@ public sealed class CypherParameter
     /// fallback when <see cref="ZoneId"/> is not set. Converted to offset-seconds for the driver.
     /// </summary>
     public int? OffsetMinutes { get; set; }
+
+    /// <summary>
+    /// Composite carrier read only when <see cref="Type"/> is <c>List</c>: the flat, one-level list of
+    /// scalar elements. An empty list is valid (maps to an empty driver list); a <c>List</c> tag with a
+    /// <see langword="null"/> carrier is a missing required carrier and fails loud.
+    /// </summary>
+    public IList<CypherListElement>? ListElements { get; set; }
+
+    /// <summary>
+    /// Composite carrier read only when <see cref="Type"/> is <c>Map</c>: the flat, one-level map of
+    /// scalar entries keyed by <see cref="CypherMapEntry.Key"/>. An empty map is valid (maps to an empty
+    /// driver map); a <c>Map</c> tag with a <see langword="null"/> carrier is a missing required carrier
+    /// and fails loud.
+    /// </summary>
+    public IList<CypherMapEntry>? MapEntries { get; set; }
 }
