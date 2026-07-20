@@ -16,7 +16,7 @@ connection engine (`Ariadne.Core`) and the thin Integration Studio action classe
 is named descriptively — **Neo4j Bolt Connector** — while *Ariadne* is the codename this repo carries.
 
 *Built by [Jonas Fiers](https://github.com/jonasfiers) with Claude (Anthropic) as an implementation
-collaborator — under Jonas's specification and verification throughout. See [Contributions](#contributions).*
+collaborator — under Jonas's specification and verification throughout.*
 
 ## Why this exists
 
@@ -107,8 +107,6 @@ Integration Studio Extension, and building a demo in Service Studio, are manual 
 **not** automated in this repo. Result records travel as a JSON string that the OutSystems app deserializes
 into Structures it defines — the same pattern real Forge components use for dynamic data.
 
-## Contributions
+## License
 
-Built by [Jonas Fiers](https://github.com/jonasfiers) — scope, design, and validation strategy — with
-Claude (Anthropic) implementing under that specification and verification. Licensed under the
-[MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE).
