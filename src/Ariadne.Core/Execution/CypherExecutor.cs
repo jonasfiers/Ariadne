@@ -232,7 +232,16 @@ public sealed class CypherExecutor
 
         switch (ex)
         {
-            // ClientException FIRST: it is a developer error and several client-error subtypes exist; catching
+            // A ClientException with NO Neo.ClientError.* code isn't a Cypher/constraint error — it's a
+            // client-side OPERATIONAL condition (e.g. connection-acquisition timeout / pool exhaustion,
+            // which the driver reports as a bare ClientException). Real server developer errors always
+            // carry a Neo.ClientError.* code, so an empty code is a safe discriminator. (§9: acquisition
+            // timeout is operational.) Must precede the general ClientException arm.
+            case ClientException client when string.IsNullOrEmpty(client.Code):
+                return CypherExecutionException.Operational(
+                    $"Neo4j client-side error: {client.Message}", client.Code, client);
+
+            // ClientException with a code: a developer error; several client-error subtypes exist, so catching
             // the base here surfaces them all verbatim. (Bad Cypher, constraint violation, argument errors.)
             case ClientException client:
                 return CypherExecutionException.Developer(

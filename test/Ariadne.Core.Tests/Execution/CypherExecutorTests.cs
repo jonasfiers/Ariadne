@@ -214,6 +214,24 @@ public class CypherExecutorTests
         Assert.Same(client, ex.InnerException);
     }
 
+    // Regression (review Finding): a ClientException with NO Neo.ClientError.* code is a client-side
+    // OPERATIONAL condition (pool exhaustion / acquisition timeout), not a developer/Cypher error — and
+    // must not emit a leading-colon message.
+    [Fact]
+    public void ClientException_with_empty_code_is_operational_not_developer()
+    {
+        var poolTimeout = new ClientException("", "Failed to obtain a connection from pool within 00:00:02");
+        var (executor, _) = Build(CursorWith(Array.Empty<string>()), throwOnRun: poolTimeout);
+
+        var ex = Assert.Throws<CypherExecutionException>(() => executor.RunCypherRead(Config(), "RETURN 1", NoParams()));
+
+        Assert.False(ex.IsDeveloperError);
+        Assert.Equal(ExecutionErrorClassification.Operational, ex.Classification);
+        Assert.DoesNotContain(Secret, ex.Message);
+        Assert.False(ex.Message.StartsWith(":"), "operational message must not start with a leading colon");
+        Assert.Contains("connection from pool", ex.Message);
+    }
+
     [Fact]
     public void AuthenticationException_is_operational_and_leaks_no_field_or_credential()
     {
