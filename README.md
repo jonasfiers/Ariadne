@@ -15,8 +15,8 @@ connection engine (`Ariadne.Core`) and the thin Integration Studio action classe
 (`Ariadne.Extension`). This repo **isn't** the packaged extension: on the Forge the published component
 is named descriptively — **Neo4j Bolt Connector** — while *Ariadne* is the codename this repo carries.
 
-*The .NET implementation is written by Claude (Anthropic), directed and verified throughout by
-[Jonas Fiers](https://github.com/jonasfiers) — see [Contributions](#contributions).*
+*Built by [Jonas Fiers](https://github.com/jonasfiers) with Claude (Anthropic) as an implementation
+collaborator — under Jonas's specification and verification throughout. See [Contributions](#contributions).*
 
 ## Why this exists
 
@@ -109,5 +109,6 @@ into Structures it defines — the same pattern real Forge components use for dy
 
 ## Contributions
 
-Requirements, scope, and validation direction by Jonas Fiers; .NET implementation by Claude (Anthropic).
-Licensed under the [MIT License](LICENSE).
+Built by [Jonas Fiers](https://github.com/jonasfiers) — scope, design, and validation strategy — with
+Claude (Anthropic) implementing under that specification and verification. Licensed under the
+[MIT License](LICENSE).
