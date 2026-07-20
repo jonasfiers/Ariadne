@@ -1,6 +1,6 @@
 # Architecture
 
-ARIADNE mirrors the structure that made [PICASSO](https://github.com/jonasfiers/PICASSO) verifiable
+Ariadne mirrors the structure that made [PICASSO](https://github.com/jonasfiers/PICASSO) verifiable
 outside Windows GUI tooling: a portable, testable .NET core, with the OutSystems packaging as a thin,
 manual outer layer.
 

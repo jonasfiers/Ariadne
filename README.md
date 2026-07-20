@@ -1,4 +1,4 @@
-# ARIADNE
+# Ariadne
 
 **The thread through the graph** — a Neo4j connector for OutSystems, over the Bolt protocol.
 
@@ -7,7 +7,7 @@
 > commit history shows as landed. Nothing below describes behaviour that isn't yet implemented and
 > tested — see the [changelog](#status--roadmap).
 
-ARIADNE is the portable .NET core a Neo4j connector for OutSystems is built from — the mapping and
+Ariadne is the portable .NET core a Neo4j connector for OutSystems is built from — the mapping and
 connection engine (`Ariadne.Core`) and the thin Integration Studio action classes that wrap it
 (`Ariadne.Extension`). This repo **isn't** the packaged extension: assembling these DLLs into an
 Integration Studio Extension, and building the demo app in Service Studio, are manual Windows-only
@@ -31,7 +31,7 @@ is narrower and sharper than "there's no connector":
   Neo4j's **query-plan cache** (which keys on the query string), and forces **hand-formatted, untyped**
   literals.
 
-ARIADNE's reason to exist is the part nobody else covers: **typed query parameters, typed results, and a
+Ariadne's reason to exist is the part nobody else covers: **typed query parameters, typed results, and a
 correct connection lifecycle** — each validated against a real Neo4j rather than assumed correct.
 
 ## Design
@@ -46,7 +46,7 @@ Three pillars, specified before implementation:
 - **Correct connection lifecycle** — the Neo4j driver is a process-lifetime pooled singleton (never
   created per call), with read/write transaction routing and automatic retry of transient errors.
 
-The correctness bar is inherited from ARIADNE's sibling, [PICASSO](https://github.com/jonasfiers/PICASSO)
+The correctness bar is inherited from Ariadne's sibling, [PICASSO](https://github.com/jonasfiers/PICASSO)
 (a COBOL copybook connector for OutSystems): **fail loudly, never silently miscompute**, and prove it
 empirically. Here that means a round-trip oracle — bind a value of every supported type, send it to a
 real Neo4j, and assert what comes back equals what went in.
