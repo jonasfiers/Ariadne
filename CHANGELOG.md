@@ -2,6 +2,46 @@
 
 All notable changes to Ariadne are recorded here. Each entry corresponds to a landed, tested feature.
 
+## Feature 06 — Record-envelope builder: `RecordsJson` (`Ariadne.Core`)
+
+Assembles a whole query result into the canonical `RecordsJson` envelope (result spec §2): a JSON **array** of
+per-record JSON **objects** (`{ "<column>": <value>, ... }` in `Keys` order), every value serialized by the
+Feature 04/05 `CypherValueSerializer` (unchanged — only consumed). The last pure-serialization layer before the
+connection/execution layer. It also **owns the writer-abandon-on-throw responsibility** (BACKLOG N1).
+
+- **`RecordsJsonBuilder`** (static) — public entry points designed to compose with the future execution layer:
+  - `RecordsJsonResult Build(IEnumerable<IRecord>)` — the JSON array text **and** the ordered column names,
+    produced in a **single pass** over the sequence (verified — no double enumeration).
+  - `string BuildRecordsJson(IEnumerable<IRecord>)` — convenience wrapper returning just the JSON.
+  - `IReadOnlyList<string> WriteRecords(Utf8JsonWriter, IEnumerable<IRecord>)` — writes the array into an
+    already-open writer (for composing into a larger writer later) and returns the columns.
+- **`RecordsJsonResult`** — a readonly struct pairing `Json` (the array) with `Columns` (the first record's
+  `Keys`, empty for an empty result). `Summary` (typed counters) is deliberately a separate feature.
+- **Shape:** array of objects; per-record keys in the record's own `Keys` order; empty sequence → `[]` with no
+  columns; a zero-column record → `{}`. Values read by the **integer indexer `IRecord.this[int]`** (aligned 1:1
+  with `Keys`), so column order is exact and a duplicate name can't silently resolve to one column's value.
+- **Fail loud:** a `null` records argument → `ArgumentNullException`; a `null` record in the sequence, or a
+  **duplicate column name** within a record (Bolt never produces one — decided: fail loud rather than emit a
+  duplicate JSON object key), → named `CypherResultException`. Distinct-case names (`X` vs `x`) are allowed
+  (ordinal). Any unserializable value fails loud via `CypherValueSerializer`, inherited unchanged.
+- **Writer integrity (BACKLOG N1 — this feature owns it).** A `CypherResultException` mid-result abandons the
+  **whole** result: `Build`/`BuildRecordsJson` serialize into a fresh, method-local `MemoryStream` and only
+  materialize the string **after** the array is fully closed and flushed — a throw propagates out **before** any
+  string is built, so no truncated array, half-record, or reused-buffer leak can reach the caller. Proven:
+  a 2nd-record unsupported `Duration`/`Point` → throws, the result reference is never assigned; and a failing
+  build does **not** corrupt a subsequent clean one. The `WriteRecords` overload propagates the throw with the
+  shared writer left holding an unclosed, invalid-JSON fragment (`[{"n":1},{"n":`) that `JsonDocument.Parse`
+  rejects — the caller (execution layer) abandons it.
+- **Verified against the real Neo4j.Driver 5.28.3 `IRecord`** (by reflection): its own members `Keys`
+  (`IReadOnlyList<string>`), `Values` (`IReadOnlyDictionary<string,object>`), the integer indexer `this[int]`,
+  and `Get`/`TryGet`/`GetCaseInsensitive`/`TryGetCaseInsensitive`; `IRecord` extends
+  `IReadOnlyDictionary<string,object>` (so the string indexer, `Count`, `ContainsKey`, enumeration come from
+  there). The test fake implements the full interface but the builder relies only on `Keys` + `this[int]`.
+- **20 new tests** (225 → **245**), all green. Pure logic — a hand-rolled `IRecord` fake (and a minimal `INode`
+  fake for value-routing spot-checks), no server, no session, no mocking libraries; shape/order/empty/columns,
+  value routing (ZonedDateTime `{value,zone}`, node envelope, explicit null), duplicate-key + null-record
+  fail-loud, and the full N1 no-partial-JSON behaviour all asserted.
+
 ## Feature 05 — Result composites + graph envelopes (`Ariadne.Core`)
 
 The second half of result value serialization: extends `CypherValueSerializer.Write` from leaves (Feature 04)
