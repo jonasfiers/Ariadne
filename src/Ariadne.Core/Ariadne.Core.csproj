@@ -13,6 +13,11 @@
          .NET Framework 4.7.2+, which OutSystems 11 Integration Studio extensions require.
          Neo4j.Driver 6.x is net8.0+ only and is reserved for the future ODC track. -->
     <PackageReference Include="Neo4j.Driver" Version="5.28.3" />
+    <!-- The one dependency Feature 03 (the `Json` typed-escape-hatch parameter) is allowed to add.
+         Pinned to a netstandard2.0-compatible version (10.0.10, matching PICASSO) so the built DLL stays
+         consumable by .NET Framework 4.7.2+ (OutSystems 11). Its transitive deps must be bundled into the
+         O11 Integration Studio extension package. -->
+    <PackageReference Include="System.Text.Json" Version="10.0.10" />
   </ItemGroup>
 
 </Project>

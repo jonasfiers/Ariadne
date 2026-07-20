@@ -91,6 +91,11 @@ public static class CypherParameterMapper
             case "MAP":
                 return BuildMap(p);
 
+            case "JSON":
+                // The recursive typed-JSON escape hatch — top-level only. Nested `Json` nodes fail loud
+                // inside the builder; a `Json` element inside a flat List/Map still fails loud in MapScalar.
+                return TypedJsonBuilder.Build(p.JsonValue, $"Cypher parameter '{p.Name}'");
+
             default:
                 return MapScalar(p.Type, p, $"Cypher parameter '{p.Name}'");
         }
@@ -131,27 +136,19 @@ public static class CypherParameterMapper
                 return (double)Required(carrier.FloatValue, context, type, "FloatValue");
 
             case "DATE":
-            {
-                var dt = RequiredDateTime(carrier, context, type);
-                return new LocalDate(dt.Year, dt.Month, dt.Day);
-            }
+                // Shared construction (ScalarValueFactory) — identical to the Json path.
+                return ScalarValueFactory.BuildDate(RequiredDateTime(carrier, context, type));
 
             case "TIME":
-            {
-                var dt = RequiredDateTime(carrier, context, type);
-                return new LocalTime(dt.Hour, dt.Minute, dt.Second, NanosecondOfSecond(dt));
-            }
+                return ScalarValueFactory.BuildTime(RequiredDateTime(carrier, context, type));
 
             case "DATETIME":
                 // Decision A: zoneless. Never fabricate a zone.
-            {
-                var dt = RequiredDateTime(carrier, context, type);
-                return new LocalDateTime(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second,
-                    NanosecondOfSecond(dt));
-            }
+                return ScalarValueFactory.BuildLocalDateTime(RequiredDateTime(carrier, context, type));
 
             case "ZONEDDATETIME":
-                return BuildZoned(carrier, context);
+                return ScalarValueFactory.BuildZoned(
+                    RequiredDateTime(carrier, context, type), carrier.ZoneId, carrier.OffsetMinutes, context);
 
             case "BYTES":
                 return Required(carrier.BytesValue, context, type, "BytesValue");
@@ -230,43 +227,6 @@ public static class CypherParameterMapper
 
         return result;
     }
-
-    private static ZonedDateTime BuildZoned(IScalarCarrier carrier, string context)
-    {
-        // Normalize away the hidden DateTime.Kind flag so the wall-clock is interpreted literally in
-        // the supplied zone — never UTC-shifted (Kind=Utc, a silent miscompute) nor offset-validated
-        // and rejected (Kind=Local). Behaviour must not depend on Kind (design principle 5). This holds
-        // identically for a top-level scalar and for a List/Map element, since all share this path.
-        var dt = DateTime.SpecifyKind(RequiredDateTime(carrier, context, "ZonedDateTime"), DateTimeKind.Unspecified);
-
-        // A zone is only ever produced when the caller supplied one — never invented.
-        if (!string.IsNullOrEmpty(carrier.ZoneId))
-        {
-            try
-            {
-                return new ZonedDateTime(dt, carrier.ZoneId);
-            }
-            catch (Exception ex)
-            {
-                throw new CypherParameterException(
-                    $"{context} has an invalid ZoneId '{carrier.ZoneId}'.", ex);
-            }
-        }
-
-        if (carrier.OffsetMinutes is int minutes)
-        {
-            // The driver takes offset seconds.
-            return new ZonedDateTime(dt, minutes * 60);
-        }
-
-        throw new CypherParameterException(
-            $"{context} is ZonedDateTime but supplies neither ZoneId nor OffsetMinutes " +
-            "(a zone is never fabricated).");
-    }
-
-    /// <summary>Nanosecond component within the second, from the DateTime's 100-ns ticks (0..999,999,900).</summary>
-    private static int NanosecondOfSecond(DateTime dt)
-        => (int)(dt.Ticks % TimeSpan.TicksPerSecond) * 100;
 
     private static DateTime RequiredDateTime(IScalarCarrier carrier, string context, string? type)
     {

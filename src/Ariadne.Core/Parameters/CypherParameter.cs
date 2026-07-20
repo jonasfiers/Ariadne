@@ -80,4 +80,14 @@ public sealed class CypherParameter : IScalarCarrier
     /// and fails loud.
     /// </summary>
     public IList<CypherMapEntry>? MapEntries { get; set; }
+
+    /// <summary>
+    /// The typed-JSON payload read only when <see cref="Type"/> is <c>Json</c> — the recursive escape
+    /// hatch for arbitrarily nested structures the flat <see cref="ListElements"/>/<see cref="MapEntries"/>
+    /// deliberately cannot express. Each JSON node carries an explicit <c>$type</c> tag (and, except for
+    /// <c>Null</c>, a <c>$value</c>); the mapper walks it and builds the exact driver types, failing loud
+    /// (with the JSON path to the offender) on anything untagged, unknown, deferred, or malformed. A
+    /// <see langword="null"/> payload under a <c>Json</c> tag is a missing required carrier and fails loud.
+    /// </summary>
+    public string? JsonValue { get; set; }
 }
