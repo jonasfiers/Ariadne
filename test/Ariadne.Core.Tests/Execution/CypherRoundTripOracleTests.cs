@@ -176,7 +176,7 @@ public sealed class CypherRoundTripOracleTests
             {
                 Name = "p",
                 Type = "List",
-                ListElements = new List<CypherListElement>
+                ListElements = new CypherListElement[]
                 {
                     new CypherListElement { Type = "Integer", IntegerValue = 1 },
                     new CypherListElement { Type = "String", StringValue = "two" },
@@ -198,7 +198,7 @@ public sealed class CypherRoundTripOracleTests
             {
                 Name = "p",
                 Type = "Map",
-                MapEntries = new List<CypherMapEntry>
+                MapEntries = new CypherMapEntry[]
                 {
                     new CypherMapEntry { Key = "alpha", Type = "Integer", IntegerValue = 1 },
                     new CypherMapEntry { Key = "beta", Type = "String", StringValue = "x" },

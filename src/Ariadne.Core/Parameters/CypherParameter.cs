@@ -71,7 +71,7 @@ public sealed class CypherParameter : IScalarCarrier
     /// scalar elements. An empty list is valid (maps to an empty driver list); a <c>List</c> tag with a
     /// <see langword="null"/> carrier is a missing required carrier and fails loud.
     /// </summary>
-    public IList<CypherListElement>? ListElements { get; set; }
+    public CypherListElement[]? ListElements { get; set; }
 
     /// <summary>
     /// Composite carrier read only when <see cref="Type"/> is <c>Map</c>: the flat, one-level map of
@@ -79,7 +79,7 @@ public sealed class CypherParameter : IScalarCarrier
     /// driver map); a <c>Map</c> tag with a <see langword="null"/> carrier is a missing required carrier
     /// and fails loud.
     /// </summary>
-    public IList<CypherMapEntry>? MapEntries { get; set; }
+    public CypherMapEntry[]? MapEntries { get; set; }
 
     /// <summary>
     /// The typed-JSON payload read only when <see cref="Type"/> is <c>Json</c> — the recursive escape

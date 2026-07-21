@@ -27,7 +27,7 @@ public class CypherCompositeParameterTests
         {
             Name = "ids",
             Type = "List",
-            ListElements = new List<CypherListElement>
+            ListElements = new CypherListElement[]
             {
                 new() { Type = "Integer", IntegerValue = 1 },
                 new() { Type = "Integer", IntegerValue = 2 },
@@ -47,7 +47,7 @@ public class CypherCompositeParameterTests
         {
             Name = "mixed",
             Type = "List",
-            ListElements = new List<CypherListElement>
+            ListElements = new CypherListElement[]
             {
                 new() { Type = "String", StringValue = "hi" },
                 new() { Type = "Integer", IntegerValue = 42 },
@@ -78,7 +78,7 @@ public class CypherCompositeParameterTests
     {
         var v = MapOne(new CypherParameter
         {
-            Name = "ids", Type = "List", ListElements = new List<CypherListElement>()
+            Name = "ids", Type = "List", ListElements = new CypherListElement[0]
         });
         var list = Assert.IsAssignableFrom<IList<object?>>(v);
         Assert.Empty(list);
@@ -93,7 +93,7 @@ public class CypherCompositeParameterTests
         {
             Name = "props",
             Type = "Map",
-            MapEntries = new List<CypherMapEntry>
+            MapEntries = new CypherMapEntry[]
             {
                 new() { Key = "name", Type = "String", StringValue = "Ada" },
                 new() { Key = "age", Type = "Integer", IntegerValue = 36 },
@@ -116,7 +116,7 @@ public class CypherCompositeParameterTests
     {
         var v = MapOne(new CypherParameter
         {
-            Name = "props", Type = "Map", MapEntries = new List<CypherMapEntry>()
+            Name = "props", Type = "Map", MapEntries = new CypherMapEntry[0]
         });
         var map = Assert.IsAssignableFrom<IDictionary<string, object?>>(v);
         Assert.Empty(map);
@@ -129,7 +129,7 @@ public class CypherCompositeParameterTests
         {
             Name = "props",
             Type = "Map",
-            MapEntries = new List<CypherMapEntry>
+            MapEntries = new CypherMapEntry[]
             {
                 new() { Key = "A", Type = "Integer", IntegerValue = 1 },
                 new() { Key = "a", Type = "Integer", IntegerValue = 2 }
@@ -154,7 +154,7 @@ public class CypherCompositeParameterTests
         {
             Name = "times",
             Type = "List",
-            ListElements = new List<CypherListElement>
+            ListElements = new CypherListElement[]
             {
                 new() { Type = "ZonedDateTime", DateTimeValue = dt, ZoneId = "Europe/Brussels" }
             }
@@ -176,7 +176,7 @@ public class CypherCompositeParameterTests
         {
             Name = "props",
             Type = "Map",
-            MapEntries = new List<CypherMapEntry>
+            MapEntries = new CypherMapEntry[]
             {
                 new() { Key = "when", Type = "ZonedDateTime", DateTimeValue = dt, OffsetMinutes = 120 }
             }
@@ -199,7 +199,7 @@ public class CypherCompositeParameterTests
         {
             Name = "outer",
             Type = "List",
-            ListElements = new List<CypherListElement> { new() { Type = tag } }
+            ListElements = new CypherListElement[] { new() { Type = tag } }
         }));
         Assert.Contains("outer", ex.Message);
         Assert.Contains("Json", ex.Message);
@@ -216,7 +216,7 @@ public class CypherCompositeParameterTests
         {
             Name = "outer",
             Type = "List",
-            ListElements = new List<CypherListElement> { new() { Type = tag } }
+            ListElements = new CypherListElement[] { new() { Type = tag } }
         }));
         Assert.Contains("outer", ex.Message);
         Assert.Contains(tag, ex.Message);
@@ -232,7 +232,7 @@ public class CypherCompositeParameterTests
         {
             Name = "outer",
             Type = "Map",
-            MapEntries = new List<CypherMapEntry> { new() { Key = "child", Type = tag } }
+            MapEntries = new CypherMapEntry[] { new() { Key = "child", Type = tag } }
         }));
         Assert.Contains("outer", ex.Message);
         Assert.Contains("child", ex.Message); // the offending Key is named
@@ -251,7 +251,7 @@ public class CypherCompositeParameterTests
         {
             Name = "props",
             Type = "Map",
-            MapEntries = new List<CypherMapEntry> { new() { Key = key!, Type = "String", StringValue = "x" } }
+            MapEntries = new CypherMapEntry[] { new() { Key = key!, Type = "String", StringValue = "x" } }
         }));
         Assert.Contains("props", ex.Message);
     }
@@ -263,7 +263,7 @@ public class CypherCompositeParameterTests
         {
             Name = "props",
             Type = "Map",
-            MapEntries = new List<CypherMapEntry>
+            MapEntries = new CypherMapEntry[]
             {
                 new() { Key = "dup", Type = "Integer", IntegerValue = 1 },
                 new() { Key = "dup", Type = "Integer", IntegerValue = 2 }
@@ -304,7 +304,7 @@ public class CypherCompositeParameterTests
         {
             Name = "ids",
             Type = "List",
-            ListElements = new List<CypherListElement> { new() { Type = "Integer", IntegerValue = 1 }, null! }
+            ListElements = new CypherListElement[] { new() { Type = "Integer", IntegerValue = 1 }, null! }
         }));
         Assert.Contains("ids", ex.Message);
     }
@@ -316,7 +316,7 @@ public class CypherCompositeParameterTests
         {
             Name = "props",
             Type = "Map",
-            MapEntries = new List<CypherMapEntry> { new() { Key = "a", Type = "Integer", IntegerValue = 1 }, null! }
+            MapEntries = new CypherMapEntry[] { new() { Key = "a", Type = "Integer", IntegerValue = 1 }, null! }
         }));
         Assert.Contains("props", ex.Message);
     }
@@ -328,7 +328,7 @@ public class CypherCompositeParameterTests
         {
             Name = "ids",
             Type = "List",
-            ListElements = new List<CypherListElement> { new() { Type = "Integer", IntegerValue = null } }
+            ListElements = new CypherListElement[] { new() { Type = "Integer", IntegerValue = null } }
         }));
         Assert.Contains("ids", ex.Message);
     }
@@ -342,7 +342,7 @@ public class CypherCompositeParameterTests
         {
             Name = "ids",
             Type = "List",
-            ListElements = new List<CypherListElement> { new() { Type = "iNtEgEr", IntegerValue = 5 } }
+            ListElements = new CypherListElement[] { new() { Type = "iNtEgEr", IntegerValue = 5 } }
         });
         var list = Assert.IsAssignableFrom<IList<object?>>(v);
         Assert.Equal(5L, list[0]);
@@ -353,13 +353,13 @@ public class CypherCompositeParameterTests
     {
         var l = MapOne(new CypherParameter
         {
-            Name = "ids", Type = "lIsT", ListElements = new List<CypherListElement>()
+            Name = "ids", Type = "lIsT", ListElements = new CypherListElement[0]
         });
         Assert.IsAssignableFrom<IList<object?>>(l);
 
         var m = MapOne(new CypherParameter
         {
-            Name = "props", Type = "mAp", MapEntries = new List<CypherMapEntry>()
+            Name = "props", Type = "mAp", MapEntries = new CypherMapEntry[0]
         });
         Assert.IsAssignableFrom<IDictionary<string, object?>>(m);
     }

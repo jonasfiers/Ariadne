@@ -180,8 +180,8 @@ public static class CypherParameterMapper
                 $"Cypher parameter '{p.Name}' (type 'List') is missing its ListElements.");
 
         // An empty list is valid — it maps to an empty driver list.
-        var result = new List<object?>(elements.Count);
-        for (var i = 0; i < elements.Count; i++)
+        var result = new List<object?>(elements.Length);
+        for (var i = 0; i < elements.Length; i++)
         {
             var element = elements[i];
             if (element is null)
@@ -204,7 +204,7 @@ public static class CypherParameterMapper
 
         // Cypher map keys are case-sensitive (A and a are distinct), matching the parameter-name rule.
         var result = new Dictionary<string, object?>(StringComparer.Ordinal);
-        for (var i = 0; i < entries.Count; i++)
+        for (var i = 0; i < entries.Length; i++)
         {
             var entry = entries[i];
             if (entry is null)
