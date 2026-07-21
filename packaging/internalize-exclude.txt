@@ -1,0 +1,6 @@
+^Ariadne\.Extension\.Neo4jBoltActions$
+^Ariadne\.Core\.Connection\.ConnConfig$
+^Ariadne\.Core\.Parameters\.CypherParameter$
+^Ariadne\.Core\.Parameters\.CypherListElement$
+^Ariadne\.Core\.Parameters\.CypherMapEntry$
+^Ariadne\.Core\.Results\.CypherSummary$
