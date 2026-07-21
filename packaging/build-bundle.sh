@@ -37,22 +37,38 @@ RAW="$REPO_ROOT/packaging/out/raw"
 # verified against System.Text.Json 4.7.2 / 5.0.2 / 6.0.11 / 8.0.5 / 10.0.10, in
 # both net472 and netstandard2.0 resolutions. The floor is 3 mismatches.
 #
-# Merging with /internalize collapses the whole closure into Ariadne.Extension.dll,
-# so no shared facade assemblies ship at all and there is nothing left to mismatch.
+# Merging with /internalize collapses the whole closure into one assembly, so no
+# shared facade assemblies ship at all and there is nothing left to mismatch.
 # It also makes the extension immune to bin2 filename collisions with other Forge
 # components (flat copy, last writer wins).
 # ---------------------------------------------------------------------------
-echo "==> Merging dependency closure into a single assembly"
+#
+# IMPORTANT - what gets merged into WHAT.
+#
+# The closure is merged into Ariadne.Core.dll, NOT into Ariadne.Extension.dll.
+# Ariadne.Extension.dll stays thin and unmerged (9 types, 1 public: Neo4jBoltActions)
+# and is the assembly you point Integration Studio at. Ariadne.Core.dll ships beside
+# it as a resource.
+#
+# Why: Integration Studio enumerates every type in the assembly you import, not just
+# the exported ones. Merging the closure INTO Ariadne.Extension.dll took it from 9
+# types to 1442, and Integration Studio then tried to import all of them - selecting
+# only the 5 actions did not help. Keeping the imported assembly thin keeps the import
+# surface to exactly the action class.
+#
+echo "==> Merging dependency closure into Ariadne.Core.dll"
 dotnet tool restore >/dev/null
 FACADES="$(ls -d "$HOME"/.nuget/packages/microsoft.netframework.referenceassemblies.net472/*/build/.NETFramework/v4.7.2 | head -1)"
 
 # Primary assembly must come first; its public types stay public, the rest are internalized.
+# Primary is Ariadne.Core so ConnConfig / CypherParameter / CypherSummary etc. remain public -
+# Ariadne.Extension's signatures need them - and the output keeps the name and version
+# Ariadne.Extension.dll already references (Ariadne.Core 1.0.0.0).
 dotnet ilrepack \
-  /out:"$STAGE/Ariadne.Extension.dll" \
+  /out:"$STAGE/Ariadne.Core.dll" \
   /lib:"$FACADES" /lib:"$FACADES/Facades" /lib:"$RAW" \
   "/targetplatform:v4,$FACADES" \
   /internalize \
-  "$RAW/Ariadne.Extension.dll" \
   "$RAW/Ariadne.Core.dll" \
   "$RAW/Neo4j.Driver.dll" \
   "$RAW/System.Text.Json.dll" \
@@ -66,7 +82,10 @@ dotnet ilrepack \
   "$RAW/Microsoft.Bcl.AsyncInterfaces.dll" \
   "$RAW/System.IO.Pipelines.dll"
 
-rm -f "$STAGE/Ariadne.Extension.pdb"
+rm -f "$STAGE/Ariadne.Core.pdb"
+
+# The thin action-surface assembly, shipped as-is. This is what you import.
+cp "$RAW/Ariadne.Extension.dll" "$STAGE/Ariadne.Extension.dll"
 
 cp "$REPO_ROOT/packaging/BUNDLE-README.md" "$STAGE/README.md"
 
@@ -89,4 +108,4 @@ fi
 
 echo
 echo "Bundle written to: $ZIP"
-echo "Assemblies: $(find "$STAGE" -name '*.dll' | wc -l)  (expected: 1)"
+echo "Assemblies: $(find "$STAGE" -name '*.dll' | wc -l)  (expected: 2)"

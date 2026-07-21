@@ -1,17 +1,32 @@
 # Ariadne — OutSystems 11 Integration Studio extension bundle
 
-**This bundle is a single self-contained assembly: `Ariadne.Extension.dll`.**
+**Two assemblies, and the distinction matters:**
 
-Neo4j.Driver, System.Text.Json and the whole BCL facade closure are merged into it
-(ILRepack, `/internalize`). There are no other DLLs to add, and no assembly versions
-for Integration Studio to prompt about.
+| File | Role |
+|---|---|
+| `Ariadne.Extension.dll` | **The one you import.** Thin: 9 types, exactly 1 public (`Neo4jBoltActions`). |
+| `Ariadne.Core.dll` | **A resource, not an import.** Neo4j.Driver, System.Text.Json and the whole BCL facade closure are merged into it (ILRepack `/internalize`). |
 
 ## Importing
 
 1. Extract this zip to a real folder. **Do not browse into the .zip from Explorer** —
-   Windows extracts only the single file you click, and the import will misbehave.
-2. In Integration Studio, import `Ariadne.Extension.dll`.
-3. That's it. There are no additional resources to register.
+   Windows extracts only the file you click, and the import will misbehave.
+2. In Integration Studio, import **`Ariadne.Extension.dll`**.
+3. Add **`Ariadne.Core.dll`** as a *resource* with Deploy Action
+   **"Copy to Binaries directory"**. Do not import it as an assembly.
+
+There are no other DLLs, and no assembly versions to be prompted about.
+
+### Why the split
+
+Integration Studio enumerates **every** type in the assembly you import, not just the
+public ones. An earlier build merged the whole closure directly into
+`Ariadne.Extension.dll`, taking it from 9 types to 1442 — and Integration Studio then
+tried to import all of them. Selecting only the 5 actions did not help.
+
+Keeping the imported assembly thin holds the import surface to exactly the action class,
+while the merge (which is what removes the version conflicts) happens one level down in
+`Ariadne.Core.dll`, which Integration Studio never enumerates.
 
 The exposed action surface is `Ariadne.Extension.Neo4jBoltActions`:
 
@@ -71,7 +86,10 @@ Forge components, where extension DLLs are flat-copied and the last writer wins.
 
 ## Residual references
 
-The merged assembly references only .NET Framework assemblies:
+`Ariadne.Extension.dll` references only `mscorlib`, `System.Core` and `Ariadne.Core 1.0.0.0`
+— which is the exact version shipped beside it.
+
+The merged `Ariadne.Core.dll` references only .NET Framework assemblies:
 
 ```
 mscorlib 4.0.0.0 · System 4.0.0.0 · System.Core 4.0.0.0 · System.Numerics 4.0.0.0
