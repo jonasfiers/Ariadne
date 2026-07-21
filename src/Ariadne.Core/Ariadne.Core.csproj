@@ -14,6 +14,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>Ariadne.Core</AssemblyName>
+    <!-- Shipped alongside the merged DLL so the Integration Studio adapter gets IntelliSense. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <RootNamespace>Ariadne.Core</RootNamespace>
   </PropertyGroup>
 

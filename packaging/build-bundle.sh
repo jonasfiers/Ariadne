@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 #
-# Builds the OutSystems 11 Integration Studio extension bundle.
+# Builds the Ariadne library for OutSystems 11.
 #
-# Produces packaging/out/ariadne-extension-bundle.zip containing one internally consistent
-# .NET Framework (net472) dependency closure, plus a README documenting the residual assembly
-# version skew that Integration Studio will ask about.
+# Produces packaging/out/ariadne-outsystems-library.zip containing ONE self-contained net472
+# assembly, to be REFERENCED from an Integration Studio extension's generated Visual Studio
+# project. It is not imported via "Import Actions from .NET Assembly" -- that wizard cannot build
+# Structures from ordinary .NET classes and maps them to opaque Objects instead. See BUNDLE-README.
 #
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PKG_PROJ="$REPO_ROOT/packaging/Ariadne.Package/Ariadne.Package.csproj"
 STAGE="$REPO_ROOT/packaging/out/bundle"
-ZIP="$REPO_ROOT/packaging/out/ariadne-extension-bundle.zip"
+ZIP="$REPO_ROOT/packaging/out/ariadne-outsystems-library.zip"
 
 echo "==> Building packaging closure (net472, Release)"
 rm -rf "$REPO_ROOT/packaging/out"
@@ -43,21 +44,13 @@ RAW="$REPO_ROOT/packaging/out/raw"
 # components (flat copy, last writer wins).
 # ---------------------------------------------------------------------------
 #
-# IMPORTANT - what gets merged into WHAT, and what stays public.
+# The public surface is deliberately six types: Neo4jBoltActions plus the five DTOs its signatures
+# name (packaging/internalize-exclude.txt). Everything else -- Neo4j.Driver, System.Text.Json, the
+# BCL facades, Ariadne's internals -- is internalized.
 #
-# Everything merges into Ariadne.Extension.dll (the assembly Integration Studio imports), and
-# packaging/internalize-exclude.txt keeps exactly six types public: Neo4jBoltActions plus the five
-# DTOs its signatures mention. Everything else is internalized.
-#
-# Both halves of that are load-bearing, and each was learned by getting it wrong:
-#
-#  - Types must live IN the imported assembly. Integration Studio only builds Structures from types
-#    in the assembly it imports. With the DTOs in a separate Ariadne.Core.dll shipped as a resource,
-#    the Structures folder came out empty and all three RunCypher* actions were silently dropped.
-#
-#  - But the imported assembly must expose almost nothing. Merging the closure and leaving it public
-#    put 1442 types in front of the import wizard, which then offered to import all of them;
-#    deselecting did not help.
+# That surface is now for the ADAPTER's benefit, not the import wizard's: it is exactly what the
+# hand-written Integration Studio stubs need to call, and nothing else clutters IntelliSense. It also
+# keeps the assembly immune to bin2 filename collisions with other Forge components.
 #
 echo "==> Merging closure into Ariadne.Extension.dll (6 types stay public)"
 dotnet tool restore >/dev/null
@@ -86,9 +79,11 @@ dotnet ilrepack \
   "$RAW/System.Threading.Tasks.Extensions.dll" \
   "$RAW/System.ValueTuple.dll" \
   "$RAW/Microsoft.Bcl.AsyncInterfaces.dll" \
-  "$RAW/System.IO.Pipelines.dll"
+  "$RAW/System.IO.Pipelines.dll" \
+  /xmldocs
 
-rm -f "$STAGE/Ariadne.Extension.pdb"
+# Keep the PDB: the adapter author will want to step into this from Visual Studio.
+# /xmldocs merges the XML documentation so the six public types get IntelliSense.
 
 cp "$REPO_ROOT/packaging/BUNDLE-README.md" "$STAGE/README.md"
 

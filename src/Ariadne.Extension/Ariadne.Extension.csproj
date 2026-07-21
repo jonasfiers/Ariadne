@@ -8,6 +8,8 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>Ariadne.Extension</AssemblyName>
+    <!-- Shipped alongside the merged DLL so the Integration Studio adapter gets IntelliSense. -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <RootNamespace>Ariadne.Extension</RootNamespace>
   </PropertyGroup>
 
