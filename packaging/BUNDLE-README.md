@@ -1,74 +1,91 @@
 # Ariadne — OutSystems 11 Integration Studio extension bundle
 
-Built by `packaging/build-bundle.sh` from the `Ariadne.Package` packaging project. Every
-assembly here comes from a single NuGet resolution for **net472**, so the closure is internally
-consistent — unlike the earlier hand-collected bundle, which mixed netstandard2.0 and net462
-flavours of the same package generation and produced repeated "Missing Assembly Reference"
-prompts in Integration Studio.
+**This bundle is a single self-contained assembly: `Ariadne.Extension.dll`.**
 
-## Target
-
-- **.NET Framework 4.7.2** assemblies, running on the OutSystems 11 **.NET Framework 4.8** stack.
-  (OutSystems documents 4.7.2 as the minimum; 4.6.1 is explicitly an unsupported scenario.)
-- `Neo4j.Driver` is pinned to the **5.x** line because it targets netstandard2.0. 6.x is net8.0+
-  and is reserved for the future ODC track.
-- `System.Text.Json` is pinned to **8.0.5** — matching the version OutSystems' own JWT Forge
-  component ships. See "Why not a newer System.Text.Json" below.
+Neo4j.Driver, System.Text.Json and the whole BCL facade closure are merged into it
+(ILRepack, `/internalize`). There are no other DLLs to add, and no assembly versions
+for Integration Studio to prompt about.
 
 ## Importing
 
-Import `Ariadne.Extension.dll` in Integration Studio. Add the remaining DLLs as **resources** with
-Deploy Action **"Copy to Binaries directory"**.
+1. Extract this zip to a real folder. **Do not browse into the .zip from Explorer** —
+   Windows extracts only the single file you click, and the import will misbehave.
+2. In Integration Studio, import `Ariadne.Extension.dll`.
+3. That's it. There are no additional resources to register.
 
-Do **not** add BCL facades that OutSystems documents as excluded — `netstandard.dll`,
-`mscorlib.dll`, `System.Runtime.InteropServices.RuntimeInformation.dll`, `System.Net.Http.dll`.
-None of them are in this bundle. (`System.Runtime.CompilerServices.Unsafe.dll` *is* included;
-OutSystems documents that one as safe to ship.)
+The exposed action surface is `Ariadne.Extension.Neo4jBoltActions`:
 
-## Known residual issue: three assembly version skews
+| Action | Purpose |
+|---|---|
+| `RunCypherRead` | Read query, returns the record envelope as JSON |
+| `RunCypherWrite` | Write query, returns JSON + `CypherSummary` counters |
+| `RunCypherAutoCommit` | Auto-commit query (for `PERIODIC COMMIT` etc.) |
+| `VerifyConnectivity` | Bool-success connectivity/auth probe |
+| `ResetDriver` | Drops the cached driver singleton |
 
-`Neo4j.Driver` and `System.Text.Json` were compiled against different versions of three shared
-facades. Only one copy of each filename can exist in a module's `bin2` folder, so this cannot be
-resolved by package selection — it is structural:
+Plus the `CypherSummary` structure for the write counters.
 
-| Assembly | Neo4j.Driver wants | System.Text.Json wants | Shipped |
-|---|---|---|---|
-| `System.Buffers` | 4.0.2.0 | 4.0.3.0 | 4.0.3.0 |
-| `Microsoft.Bcl.AsyncInterfaces` | 6.0.0.0 | 8.0.0.0 | 8.0.0.0 |
-| `System.Runtime.CompilerServices.Unsafe` | 4.0.4.1 | 6.0.0.0 | 6.0.0.0 |
+## Why it is merged into one assembly
 
-On a normal .NET Framework application these are fixed by binding redirects. **OutSystems has no
-supported mechanism for shipping them:**
+`Neo4j.Driver` 5.28.3 and `System.Text.Json` were compiled against different
+generations of the shared BCL facades. Measured across the closure:
 
-- A per-DLL `.config` file is **not** read by the CLR for binding. Integration Studio will happily
-  copy one to `bin2`; the binder ignores it. `required-binding-redirects.config.reference` in this
-  bundle is included for reference only — it is **not** a working fix.
-- The module's `web.config` is rebuilt from scratch on every deploy, so hand edits do not survive.
-- The Factory Configuration Forge component can transform `web.config` via XSLT, but it is
-  admin- and environment-scoped and cannot be shipped inside an `.xif`.
+| Assembly | Neo4j.Driver generation wants | System.Text.Json wants |
+|---|---|---|
+| `System.Runtime.CompilerServices.Unsafe` | 4.0.4.1 | 6.0.0.0 |
+| `System.Buffers` | 4.0.2.0 | 4.0.3.0 |
+| `Microsoft.Bcl.AsyncInterfaces` | 6.0.0.0 | 8.0.0.0 |
 
-**Before relying on this bundle**, confirm whether the generated module `web.config` already
-supplies these redirects. On a front-end:
+Only one copy of each filename can exist in a module's `bin2` folder, and
+**Integration Studio enforces exact assembly versions at import time** — it rejects a
+shipped `6.0.0.0` where `4.0.4.1` is referenced, which is precisely the error this
+bundle's predecessor produced.
+
+On a normal .NET Framework application this is what binding redirects are for.
+OutSystems has no supported way to ship them:
+
+- A per-DLL `.config` is not read by the CLR for assembly binding.
+- The module's `web.config` is rebuilt from scratch on every deploy.
+- Factory Configuration can transform `web.config`, but it is admin- and
+  environment-scoped and cannot travel inside an `.xif`.
+
+And no package selection avoids the conflict. It was verified against System.Text.Json
+**4.7.2, 5.0.2, 6.0.11, 8.0.5 and 10.0.10**, in both `net472` and `netstandard2.0`
+resolutions — the floor is 3 irreconcilable mismatches every time.
+
+Merging removes the problem at the root: nothing shared is shipped, so nothing can
+mismatch. It also makes the extension immune to `bin2` filename collisions with other
+Forge components, where extension DLLs are flat-copied and the last writer wins.
+
+## Build provenance
+
+- Built by `packaging/build-bundle.sh` from the `Ariadne.Package` project.
+- Assemblies compiled for **net472**, running on the OutSystems 11 **.NET Framework 4.8**
+  stack. (OutSystems documents 4.7.2 as the minimum; 4.6.1 is an unsupported scenario.)
+- `Neo4j.Driver` pinned to the **5.x** line — it targets netstandard2.0, so it is
+  consumable from .NET Framework. 6.x is net8.0+ and is reserved for the future ODC track.
+- `System.Text.Json` pinned to **8.0.5**, matching what OutSystems' own JWT Forge
+  component ships.
+- Validated: the full suite, including the F10 live-Neo4j round-trip oracle, passes with
+  zero disagreements.
+
+## Residual references
+
+The merged assembly references only .NET Framework assemblies:
 
 ```
-C:\Program Files\OutSystems\Platform Server\running\<Module>.<hash>\web.config
+mscorlib 4.0.0.0 · System 4.0.0.0 · System.Core 4.0.0.0 · System.Numerics 4.0.0.0
+netstandard 2.0.0.0
 ```
 
-Look for `<runtime><assemblyBinding>`. If the platform does not supply them, the fallback is to
-ILRepack/internalize the dependency closure into `Ariadne.Core` so no shared facade assemblies are
-shipped at all.
+`netstandard 2.0.0.0` comes from Neo4j.Driver being a netstandard2.0 library. It is part
+of .NET Framework 4.7.2+ and normally resolves from the GAC. In the unlikely event
+Integration Studio asks for it, point it at:
 
-## Why not a newer System.Text.Json
+```
+C:\Program Files (x86)\Reference Assemblies\Microsoft\Framework\.NETFramework\v4.7.2\Facades\netstandard.dll
+```
 
-An earlier analysis concluded that `System.Text.Json` 10.x was unusable because its assembly
-version `10.0.0.0` meant "the .NET 10 in-box runtime assembly", which OutSystems could not load.
-**That reasoning was incorrect** — the NuGet package ships netstandard2.0 and net462 builds that
-load fine on .NET Framework, and `10.0.0.0` is simply the assembly version stamped on the
-out-of-band package.
+(not the NuGet `netstandard.library` package — that is a different assembly).
 
-The real reasons to prefer 8.0.5 are the ones above: its transitive closure lines up with what
-`Neo4j.Driver` 5.28.3 was compiled against (`System.Memory` 4.0.1.2,
-`System.Threading.Tasks.Extensions` 4.2.0.1, `System.IO.Pipelines` 8.0.0.0 all match exactly,
-where a 10.x closure matches none of them), and it matches the OutSystems ecosystem version.
-
-Full analysis: `ariadne-reconciliation.md`.
+Full analysis of how this was diagnosed: `ariadne-reconciliation.md` in the repo root.

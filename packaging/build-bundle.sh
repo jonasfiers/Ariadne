@@ -20,18 +20,53 @@ dotnet build "$PKG_PROJ" -c Release --nologo -o "$REPO_ROOT/packaging/out/raw"
 
 RAW="$REPO_ROOT/packaging/out/raw"
 
-# The packaging shim itself is scaffolding, not part of the extension.
-echo "==> Staging assemblies"
-for f in "$RAW"/*.dll; do
-  base="$(basename "$f")"
-  [ "$base" = "Ariadne.Package.dll" ] && continue
-  cp "$f" "$STAGE/"
-done
+# ---------------------------------------------------------------------------
+# Merge everything into ONE assembly.
+#
+# Why: Neo4j.Driver 5.28.3 and System.Text.Json were compiled against different
+# generations of the shared BCL facades. Measured, irreconcilably:
+#
+#   System.Runtime.CompilerServices.Unsafe  Neo4j-gen wants 4.0.4.1  STJ wants 6.0.0.0
+#   System.Buffers                          Neo4j-gen wants 4.0.2.0  rest wants 4.0.3.0
+#   Microsoft.Bcl.AsyncInterfaces           Neo4j-gen wants 6.0.0.0  STJ wants 8.0.0.0
+#
+# Only one copy of each filename can exist in a module's bin2, and Integration
+# Studio enforces EXACT assembly versions at import time - it rejects a 6.0.0.0
+# where 4.0.4.1 is referenced, and offers no binding-redirect mechanism to bridge
+# the gap. No combination of package versions or TFM flavours removes this: it was
+# verified against System.Text.Json 4.7.2 / 5.0.2 / 6.0.11 / 8.0.5 / 10.0.10, in
+# both net472 and netstandard2.0 resolutions. The floor is 3 mismatches.
+#
+# Merging with /internalize collapses the whole closure into Ariadne.Extension.dll,
+# so no shared facade assemblies ship at all and there is nothing left to mismatch.
+# It also makes the extension immune to bin2 filename collisions with other Forge
+# components (flat copy, last writer wins).
+# ---------------------------------------------------------------------------
+echo "==> Merging dependency closure into a single assembly"
+dotnet tool restore >/dev/null
+FACADES="$(ls -d "$HOME"/.nuget/packages/microsoft.netframework.referenceassemblies.net472/*/build/.NETFramework/v4.7.2 | head -1)"
 
-# Carried for reference only - see README. Renamed so nobody mistakes it for a working config.
-if [ -f "$RAW/Ariadne.Package.dll.config" ]; then
-  cp "$RAW/Ariadne.Package.dll.config" "$STAGE/required-binding-redirects.config.reference"
-fi
+# Primary assembly must come first; its public types stay public, the rest are internalized.
+dotnet ilrepack \
+  /out:"$STAGE/Ariadne.Extension.dll" \
+  /lib:"$FACADES" /lib:"$FACADES/Facades" /lib:"$RAW" \
+  "/targetplatform:v4,$FACADES" \
+  /internalize \
+  "$RAW/Ariadne.Extension.dll" \
+  "$RAW/Ariadne.Core.dll" \
+  "$RAW/Neo4j.Driver.dll" \
+  "$RAW/System.Text.Json.dll" \
+  "$RAW/System.Text.Encodings.Web.dll" \
+  "$RAW/System.Buffers.dll" \
+  "$RAW/System.Memory.dll" \
+  "$RAW/System.Numerics.Vectors.dll" \
+  "$RAW/System.Runtime.CompilerServices.Unsafe.dll" \
+  "$RAW/System.Threading.Tasks.Extensions.dll" \
+  "$RAW/System.ValueTuple.dll" \
+  "$RAW/Microsoft.Bcl.AsyncInterfaces.dll" \
+  "$RAW/System.IO.Pipelines.dll"
+
+rm -f "$STAGE/Ariadne.Extension.pdb"
 
 cp "$REPO_ROOT/packaging/BUNDLE-README.md" "$STAGE/README.md"
 
@@ -54,4 +89,4 @@ fi
 
 echo
 echo "Bundle written to: $ZIP"
-echo "Assemblies: $(find "$STAGE" -name '*.dll' | wc -l)"
+echo "Assemblies: $(find "$STAGE" -name '*.dll' | wc -l)  (expected: 1)"
