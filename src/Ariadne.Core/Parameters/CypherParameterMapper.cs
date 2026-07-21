@@ -97,7 +97,7 @@ public static class CypherParameterMapper
                 return TypedJsonBuilder.Build(p.JsonValue, $"Cypher parameter '{p.Name}'");
 
             default:
-                return MapScalar(p.Type, p, $"Cypher parameter '{p.Name}'");
+                return MapScalar(p.Type, ScalarView.Of(p), $"Cypher parameter '{p.Name}'");
         }
     }
 
@@ -114,7 +114,7 @@ public static class CypherParameterMapper
     /// A human-readable descriptor of what is being mapped (e.g. <c>Cypher parameter 'foo'</c> or
     /// <c>Cypher parameter 'foo' list element [2]</c>), used verbatim in every error message.
     /// </param>
-    private static object? MapScalar(string? type, IScalarCarrier carrier, string context)
+    private static object? MapScalar(string? type, ScalarView carrier, string context)
     {
         // Case-insensitive tag matching per the spec.
         switch ((type ?? string.Empty).ToUpperInvariant())
@@ -189,7 +189,7 @@ public static class CypherParameterMapper
                     $"Cypher parameter '{p.Name}' list element [{i}] is null.");
 
             // Same scalar path as a top-level scalar — nesting fails loud inside MapScalar.
-            result.Add(MapScalar(element.Type, element, $"Cypher parameter '{p.Name}' list element [{i}]"));
+            result.Add(MapScalar(element.Type, ScalarView.Of(element), $"Cypher parameter '{p.Name}' list element [{i}]"));
         }
 
         return result;
@@ -222,13 +222,13 @@ public static class CypherParameterMapper
                     "(Cypher map keys are case-sensitive; last-write-wins would silently drop a value).");
 
             // Same scalar path as a top-level scalar — nesting fails loud inside MapScalar.
-            result[key] = MapScalar(entry.Type, entry, $"Cypher parameter '{p.Name}' map entry with Key '{key}'");
+            result[key] = MapScalar(entry.Type, ScalarView.Of(entry), $"Cypher parameter '{p.Name}' map entry with Key '{key}'");
         }
 
         return result;
     }
 
-    private static DateTime RequiredDateTime(IScalarCarrier carrier, string context, string? type)
+    private static DateTime RequiredDateTime(ScalarView carrier, string context, string? type)
     {
         if (carrier.DateTimeValue is DateTime dt) return dt;
         throw new CypherParameterException(

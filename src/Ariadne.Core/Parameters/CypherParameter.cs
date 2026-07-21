@@ -16,7 +16,7 @@ namespace Ariadne.Core.Parameters;
 /// <see cref="CypherParameterMapper.BuildParameters"/>; the <c>Json</c> escape hatch and the deferred
 /// (<c>Duration</c>/<c>Point</c>/<c>OffsetTime</c>) tags exist in the spec but currently fail loud.
 /// </remarks>
-public sealed class CypherParameter : IScalarCarrier
+public sealed class CypherParameter
 {
     /// <summary>The Cypher identifier this parameter binds to, without the leading <c>$</c>.</summary>
     public string Name { get; set; } = string.Empty;

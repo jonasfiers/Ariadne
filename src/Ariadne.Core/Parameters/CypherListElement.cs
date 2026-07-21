@@ -12,7 +12,7 @@ namespace Ariadne.Core.Parameters;
 /// (<c>List</c>/<c>Map</c>/<c>Json</c>) or a deferred tag (<c>Duration</c>/<c>Point</c>/<c>OffsetTime</c>)
 /// fails loud: flat lists cannot nest — nested structures use the <c>Json</c> parameter (see Decision B).
 /// </remarks>
-public sealed class CypherListElement : IScalarCarrier
+public sealed class CypherListElement
 {
     /// <summary>The scalar type tag selecting the value carrier (case-insensitive). Composite/deferred tags throw.</summary>
     public string Type { get; set; } = string.Empty;

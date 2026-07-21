@@ -14,7 +14,7 @@ namespace Ariadne.Core.Parameters;
 /// tag — a composite (<c>List</c>/<c>Map</c>/<c>Json</c>) or deferred (<c>Duration</c>/<c>Point</c>/<c>OffsetTime</c>)
 /// tag fails loud: flat maps cannot nest — nested structures use the <c>Json</c> parameter (see Decision B).
 /// </remarks>
-public sealed class CypherMapEntry : IScalarCarrier
+public sealed class CypherMapEntry
 {
     /// <summary>The map key. Must be non-empty/non-whitespace and unique within the map (case-sensitive).</summary>
     public string Key { get; set; } = string.Empty;
