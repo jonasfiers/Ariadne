@@ -1,32 +1,32 @@
 # Ariadne — OutSystems 11 Integration Studio extension bundle
 
-**Two assemblies, and the distinction matters:**
+**One self-contained assembly: `Ariadne.Extension.dll`.**
 
-| File | Role |
-|---|---|
-| `Ariadne.Extension.dll` | **The one you import.** Thin: 9 types, exactly 1 public (`Neo4jBoltActions`). |
-| `Ariadne.Core.dll` | **A resource, not an import.** Neo4j.Driver, System.Text.Json and the whole BCL facade closure are merged into it (ILRepack `/internalize`). |
+Neo4j.Driver, System.Text.Json and the whole BCL facade closure are merged into it
+(ILRepack). Of ~1440 merged types, exactly **6 are public** — the action class and the five
+DTOs its signatures name. Everything else is internalized.
 
 ## Importing
 
 1. Extract this zip to a real folder. **Do not browse into the .zip from Explorer** —
    Windows extracts only the file you click, and the import will misbehave.
-2. In Integration Studio, import **`Ariadne.Extension.dll`**.
-3. Add **`Ariadne.Core.dll`** as a *resource* with Deploy Action
-   **"Copy to Binaries directory"**. Do not import it as an assembly.
+2. In Integration Studio, import **`Ariadne.Extension.dll`** into a **fresh** extension.
+   (Re-importing over an existing extension does not cleanly refresh already-imported actions.)
+3. That is all — no resources to register, no assembly versions to be prompted about.
 
-There are no other DLLs, and no assembly versions to be prompted about.
+### Why exactly six public types
 
-### Why the split
+Two constraints pull in opposite directions, and satisfying only one fails:
 
-Integration Studio enumerates **every** type in the assembly you import, not just the
-public ones. An earlier build merged the whole closure directly into
-`Ariadne.Extension.dll`, taking it from 9 types to 1442 — and Integration Studio then
-tried to import all of them. Selecting only the 5 actions did not help.
+- **Types must live in the imported assembly.** Integration Studio only builds Structures from
+  types in the assembly it imports. When the DTOs sat in a separate resource DLL, the Structures
+  folder came out empty, `ConnConfig` degraded to an opaque `Object` parameter, and all three
+  `RunCypher*` actions were silently dropped.
+- **The imported assembly must expose almost nothing.** Integration Studio enumerates every type
+  in it. Merging the closure and leaving it public put 1442 types in front of the wizard, which
+  offered to import all of them.
 
-Keeping the imported assembly thin holds the import surface to exactly the action class,
-while the merge (which is what removes the version conflicts) happens one level down in
-`Ariadne.Core.dll`, which Integration Studio never enumerates.
+Selective internalization satisfies both.
 
 The exposed action surface is `Ariadne.Extension.Neo4jBoltActions`:
 

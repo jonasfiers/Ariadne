@@ -43,8 +43,8 @@ OutSystems' own documented answer to version conflicts is physical version align
 
 **3. Integration Studio enumerates every type in the assembly you import — not just public ones.**
 This one is expensive to learn. If you ILRepack a large closure into the assembly you import, you
-will be offered *every* merged type as an action. Deselecting does not help. See "The merge must go
-one level down" below.
+will be offered *every* merged type as an action. Deselecting does not help. See "Where to merge, and
+what to leave public" below.
 
 **4. Extensions are flat-copied into the consuming module's `bin2` folder.**
 Two extensions shipping the same filename silently overwrite each other, last writer wins, and which
@@ -132,43 +132,77 @@ the `bin2` collision in fact 4.
 
 ---
 
-## The merge must go one level down
+## Where to merge, and what to leave public
 
-**This is the part that is easy to get wrong, and it cost a full round trip.**
+**Two constraints pull in opposite directions. Both are real, and satisfying only one fails.**
 
-Do **not** merge into the assembly you import. Because of fact 3, merging Ariadne's closure into
-`Ariadne.Extension.dll` took it from 9 types to 1442, and Integration Studio then tried to import all
-1442 — selecting only the 5 real actions did not help.
+**Constraint A — the types must live IN the assembly you import.** Integration Studio only builds
+Structures from types in the imported assembly. With the DTOs in a separate `Ariadne.Core.dll`
+shipped as a resource, the extension's Structures folder came out **empty**, `ConnConfig` was mapped
+to an opaque **`Object`** parameter, and every action taking `CypherParameter[]` was silently
+dropped. Only `VerifyConnectivity` and `ResetDriver` survived, because a lone opaque param is
+tolerated where an array of one is not.
 
-Correct shape:
+**Constraint B — the imported assembly must expose almost nothing.** Integration Studio enumerates
+every type in the assembly you import, not just exported ones. Merging the closure in and leaving it
+public took `Ariadne.Extension.dll` from 9 types to 1442, and the wizard offered to import all of
+them. Deselecting did not help.
 
-| File | Role | Size |
-|---|---|---|
-| `Ariadne.Extension.dll` | **Imported.** Unmerged, holds only the action class. | 9 types, 1 public |
-| `Ariadne.Core.dll` | **Resource** (Deploy Action *Copy to Binaries directory*). ILRepack primary; absorbs everything. | 1438 types |
-
-Integration Studio never enumerates a resource, so the merged bulk stays invisible.
-
-Make the **domain assembly the ILRepack primary** (`/out:Ariadne.Core.dll` with `Ariadne.Core.dll`
-listed first). Two reasons: its public types stay public — the action signatures need
-`ConnConfig`, `CypherParameter`, `CypherSummary` etc. — and the output keeps the assembly name and
-version the thin assembly already references (`Ariadne.Core 1.0.0.0`), so no reference is broken.
+**The resolution is selective internalization.** Merge everything into the assembly you import, and
+use ILRepack's exclude file to keep public *only* the action class and the DTOs its signatures name:
 
 ```bash
-dotnet ilrepack /out:"$STAGE/Ariadne.Core.dll" \
+dotnet ilrepack /out:"$STAGE/Ariadne.Extension.dll" \
   /lib:"$FACADES" /lib:"$FACADES/Facades" /lib:"$RAW" \
-  "/targetplatform:v4,$FACADES" /internalize \
-  "$RAW/Ariadne.Core.dll" "$RAW/Neo4j.Driver.dll" "$RAW/System.Text.Json.dll" ...
+  "/targetplatform:v4,$FACADES" \
+  "/internalize:packaging/internalize-exclude.txt" \
+  "$RAW/Ariadne.Extension.dll" "$RAW/Ariadne.Core.dll" "$RAW/Neo4j.Driver.dll" ...
 ```
 
-`/targetplatform:v4,<dir>` is required on Linux/macOS — without the directory, ILRepack looks for
-.NET Framework inside the .NET SDK and fails.
+with `internalize-exclude.txt` holding one regex per line:
 
-Verify afterwards that the merged assembly references **only** .NET Framework assemblies
-(`mscorlib`, `System`, `System.Core`, `System.Numerics`, `netstandard`), and that the thin assembly
-still exposes exactly the intended public type.
+```
+^Ariadne\.Extension\.Neo4jBoltActions$
+^Ariadne\.Core\.Connection\.ConnConfig$
+^Ariadne\.Core\.Parameters\.CypherParameter$
+...
+```
 
----
+Result: one DLL, 6 public types, ~1440 internal. Both constraints satisfied.
+
+Gotchas:
+
+- `/targetplatform:v4,<dir>` needs the explicit directory on Linux/macOS, or ILRepack looks for
+  .NET Framework inside the .NET SDK and fails.
+- **The exclude file is regexes only.** ILRepack compiles *every* line, so a `#` comment containing
+  an unbalanced bracket crashes the run with a `Regex` constructor exception.
+- Plain `/internalize` with no exclude file **does not internalize as much as you expect**. ILRepack
+  refuses to internalize types reachable from the primary assembly's public API — `Ariadne.Core`
+  exposed `IDriver`/`IAuthToken`/`IResultSummary`, so the entire `Neo4j.Driver` public surface stayed
+  public (127 public types). Narrow the public API or use the exclude file.
+
+## Public boundary types implement nothing and inherit nothing
+
+`IScalarCarrier` was an **internal** interface implemented by three **public** DTOs. A public type
+still advertises its interfaces through reflection, and that is a real hazard on this boundary — the
+model classes mirror OutSystems Structures, which cannot inherit either. Replaced with an internal
+`readonly struct` holding the same properties, built via a static factory at each call site.
+
+Verify at metadata level, not by reading source: every boundary type should report `interfaces=0`.
+
+## Diagnose by probe assembly, not by inspection
+
+When Integration Studio silently drops a method it tells you nothing about why. Build a throwaway DLL
+with one method per isolated construct — `string[]` in, `out string[]`, array of class, `List<T>`,
+class as `out`, nullable members, `byte[]`, parameter arity, then the exact failing signature — and
+run the wizard on it. Whichever methods behave differently name the cause.
+
+Three hypotheses were burned guessing from type declarations before doing this. The probe settled the
+question in one round trip. Build it as soon as the first hypothesis fails.
+
+**But read the probe correctly:** the wizard *listing* a method is not proof it will *import*. The
+probe listed all 12 shapes while the real extension imported only 7 actions. Confirm against the
+imported extension tree, not the wizard.
 
 ## Import checklist
 
