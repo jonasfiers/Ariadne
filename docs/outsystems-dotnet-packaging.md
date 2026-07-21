@@ -16,6 +16,21 @@ most of the pain below evaporates there.
 
 ---
 
+## STATUS — read before trusting any of this
+
+**Verified, measured, reproducible:** everything about assembly versions and the dependency closure.
+Facts 1, 2, 4 and 5 below; "The root difficulty"; "The decision procedure"; "Choosing dependency
+versions"; and the PICASSO measurements at the end. That work stands.
+
+**NOT verified — the extension has never imported into a usable state.** As of 2026-07-21 no build
+produced a working action surface. The best result was tens of actions imported with every custom
+type mapped to an opaque `Object`, which OutSystems cannot construct or read. So "Where to merge, and
+what to leave public" is a **record of what was tried and what each attempt produced** — not
+instructions. Do not follow it as a recipe. The leading hypothesis is that the import wizard is the
+wrong tool entirely; see "Failure log".
+
+---
+
 ## The five facts that determine everything
 
 These are the constraints. Almost every packaging decision follows mechanically from them.
@@ -44,7 +59,7 @@ OutSystems' own documented answer to version conflicts is physical version align
 **3. Integration Studio enumerates every type in the assembly you import — not just public ones.**
 This one is expensive to learn. If you ILRepack a large closure into the assembly you import, you
 will be offered *every* merged type as an action. Deselecting does not help. See "Where to merge, and
-what to leave public" below.
+what to leave public — UNRESOLVED" below.
 
 **4. Extensions are flat-copied into the consuming module's `bin2` folder.**
 Two extensions shipping the same filename silently overwrite each other, last writer wins, and which
@@ -132,79 +147,96 @@ the `bin2` collision in fact 4.
 
 ---
 
-## Where to merge, and what to leave public
+## Where to merge, and what to leave public — UNRESOLVED
 
-**Two constraints pull in opposite directions. Both are real, and satisfying only one fails.**
+Two constraints were observed to pull in opposite directions. Both are real. **Satisfying both did
+not produce a usable extension**, which is why this section is a log rather than a recipe.
 
-**Constraint A — the types must live IN the assembly you import.** Integration Studio only builds
-Structures from types in the imported assembly. With the DTOs in a separate `Ariadne.Core.dll`
-shipped as a resource, the extension's Structures folder came out **empty**, `ConnConfig` was mapped
-to an opaque **`Object`** parameter, and every action taking `CypherParameter[]` was silently
-dropped. Only `VerifyConnectivity` and `ResetDriver` survived, because a lone opaque param is
-tolerated where an array of one is not.
+**Constraint A — types must live IN the assembly you import.** Integration Studio appears to build
+its parameter mapping only from types in the imported assembly. With the DTOs in a separate
+`Ariadne.Core.dll` shipped as a resource, every action taking `CypherParameter[]` was silently
+dropped; only methods touching a single custom class survived.
 
 **Constraint B — the imported assembly must expose almost nothing.** Integration Studio enumerates
-every type in the assembly you import, not just exported ones. Merging the closure in and leaving it
-public took `Ariadne.Extension.dll` from 9 types to 1442, and the wizard offered to import all of
-them. Deselecting did not help.
+every type in the assembly you import. Merging the closure in and leaving it public took the assembly
+from 9 types to 1442, and the wizard offered to import all of them. Deselecting did not help.
 
-**The resolution is selective internalization.** Merge everything into the assembly you import, and
-use ILRepack's exclude file to keep public *only* the action class and the DTOs its signatures name:
+### What was tried, and what each produced
 
-```bash
-dotnet ilrepack /out:"$STAGE/Ariadne.Extension.dll" \
-  /lib:"$FACADES" /lib:"$FACADES/Facades" /lib:"$RAW" \
-  "/targetplatform:v4,$FACADES" \
-  "/internalize:packaging/internalize-exclude.txt" \
-  "$RAW/Ariadne.Extension.dll" "$RAW/Ariadne.Core.dll" "$RAW/Neo4j.Driver.dll" ...
-```
+| # | Arrangement | Observed outcome |
+|---|---|---|
+| 1 | Multi-DLL closure, mixed TFM flavours (hand-collected) | Import failed: "reference that could not be found", `System.Runtime.CompilerServices.Unsafe 4.0.4.1` |
+| 2 | Multi-DLL, one consistent net472 closure + generated binding redirects | Same failure. Redirects are inert in O11 (fact 2) |
+| 3 | Everything ILRepack-merged into the imported assembly, `/internalize` | Imported, but offered all 1442 types |
+| 4 | Merge into `Ariadne.Core.dll`, import a thin `Ariadne.Extension.dll` | Only `VerifyConnectivity`/`ResetDriver` imported. **Structures folder empty**; `ConnConfig` mapped to **`Object`** |
+| 5 | As 4, plus `IList<T>` → arrays on the DTOs | No change |
+| 6 | As 5, plus removing an internal interface from the public DTOs | No change |
+| 7 | Merge into the imported assembly, `/internalize:<excludeFile>` keeping 6 public types | Tens of actions imported, **all custom types still `Object`** |
 
-with `internalize-exclude.txt` holding one regex per line:
+### The leading hypothesis (untested)
 
-```
-^Ariadne\.Extension\.Neo4jBoltActions$
-^Ariadne\.Core\.Connection\.ConnConfig$
-^Ariadne\.Core\.Parameters\.CypherParameter$
-...
-```
+`Data Type = Object` was visible in the parameter grid from attempt 4 onward and is probably the
+whole story: **the "Import Actions from .NET Assembly" wizard does not build OutSystems Structures
+from arbitrary .NET classes** — it maps them to opaque handles that OutSystems cannot construct or
+inspect. If true, no packaging arrangement fixes it, because the wizard is not the right tool for a
+rich API surface.
 
-Result: one DLL, 6 public types, ~1440 internal. Both constraints satisfied.
+The conventional path for a Forge connector would then be the inverse: define the Actions and
+Structures **by hand in Integration Studio**, let it generate the C# signatures with its own record
+types, and implement those stubs by delegating into the merged library. **This has not been
+verified** — research was commissioned but no conclusion had landed when work stopped.
 
-Gotchas:
+---
 
-- `/targetplatform:v4,<dir>` needs the explicit directory on Linux/macOS, or ILRepack looks for
-  .NET Framework inside the .NET SDK and fails.
-- **The exclude file is regexes only.** ILRepack compiles *every* line, so a `#` comment containing
-  an unbalanced bracket crashes the run with a `Regex` constructor exception.
-- Plain `/internalize` with no exclude file **does not internalize as much as you expect**. ILRepack
-  refuses to internalize types reachable from the primary assembly's public API — `Ariadne.Core`
-  exposed `IDriver`/`IAuthToken`/`IResultSummary`, so the entire `Neo4j.Driver` public surface stayed
-  public (127 public types). Narrow the public API or use the exclude file.
+## Failure log — how this went wrong
 
-## Public boundary types implement nothing and inherit nothing
+Recorded deliberately, because the process errors cost far more than the technical ones and will
+recur on PICASSO otherwise.
 
-`IScalarCarrier` was an **internal** interface implemented by three **public** DTOs. A public type
-still advertises its interfaces through reflection, and that is a real hazard on this boundary — the
-model classes mirror OutSystems Structures, which cannot inherit either. Replaced with an internal
-`readonly struct` holding the same properties, built via a static factory at each call site.
+**1. Guessed from declarations instead of measuring.** Attempts 5, 6 and 7 were each shipped with
+confidence, based on reading type declarations and reasoning about what Integration Studio "must" be
+doing. Three consecutive wrong causes: `IList<T>`, then an internal interface, then type location.
+Each fix was plausible, each was announced as the fix, none was.
 
-Verify at metadata level, not by reading source: every boundary type should report `interfaces=0`.
+**2. Built the discriminating experiment far too late.** A probe assembly — one method per isolated
+construct — was only built after three failed hypotheses. It should have been built the moment the
+first hypothesis failed. It cost one round trip and immediately eliminated an entire class of theory.
 
-## Diagnose by probe assembly, not by inspection
+**3. Misread the probe.** The probe showed all 12 signature shapes **listed in the wizard**, which was
+reported as proof they would import. Listing is not importing — the real extension listed 7 actions
+and imported them, while the wizard had happily listed shapes it would later drop. Measuring a proxy
+and reporting it as the real thing.
 
-When Integration Studio silently drops a method it tells you nothing about why. Build a throwaway DLL
-with one method per isolated construct — `string[]` in, `out string[]`, array of class, `List<T>`,
-class as `out`, nullable members, `byte[]`, parameter arity, then the exact failing signature — and
-run the wizard on it. Whichever methods behave differently name the cause.
+**4. Ignored the strongest evidence, twice.** The **empty Structures folder** and the
+**`Data Type: Object`** column were both visible in screenshots before the last two attempts. Both
+pointed at the actual problem. Both were skimmed past in favour of a theory already in flight.
 
-Three hypotheses were burned guessing from type declarations before doing this. The probe settled the
-question in one round trip. Build it as soon as the first hypothesis fails.
+**5. Declared success on a partial signal.** "All the actions are imported again" was taken as
+confirmation and written into this document as the arrangement that worked — before learning every
+type had come through as `Object`. Documentation asserting success was committed for a state that had
+never been verified end to end.
 
-**But read the probe correctly:** the wizard *listing* a method is not proof it will *import*. The
-probe listed all 12 shapes while the real extension imported only 7 actions. Confirm against the
-imported extension tree, not the wizard.
+**6. Verified at the wrong level.** Each attempt ended with a metadata check — "exactly 6 public
+types", "interfaces=0", "all 5 actions present in the DLL". All true, all irrelevant. The thing that
+mattered was whether OutSystems could *use* the actions, and that was never the acceptance criterion.
+
+### Rules that follow
+
+- When a hypothesis fails, **build the experiment that discriminates between the remaining ones**
+  before touching production code again. Do not ship a second guess.
+- **Verify at the level the user cares about.** "The DLL contains the method" is not "the action
+  works". Define the acceptance criterion first, in those terms.
+- **Read the tool's own diagnostics before theorising.** An empty folder and a `Data Type` column
+  outrank any amount of reasoning about reflection semantics.
+- **Distinguish "listed" from "works"**, and say which one you measured.
+- **Do not write documentation asserting success until the end-to-end outcome is confirmed.** Wrong
+  documentation is worse than none — it sends the next person round the same loop with confidence.
+
+---
 
 ## Import checklist
+
+*Mechanical steps that were confirmed to matter. None of them made the extension usable — see STATUS.*
 
 - **Extract the zip to a real folder first.** Browsing into a `.zip` in Explorer extracts only the
   file you click, so siblings are missing and the import misbehaves in confusing ways.
@@ -291,3 +323,8 @@ Verify the merge before trusting it. The devbox is Linux, so a merged `net472` a
 executed here — only its metadata inspected. Ariadne's merge is metadata-verified but *not*
 runtime-tested; the plausible failure mode is System.Text.Json's reflection-based serialization
 behaving differently once internalized. Run the oracle suite on Windows, or accept the risk knowingly.
+
+**The dependency numbers above are solid. The import-surface question is not** — PICASSO's
+`PicassoActions` has the same shape as Ariadne's action class (custom DTOs as parameters), so it will
+almost certainly hit the same `Object`-mapping wall. **Settle how the action surface is built before
+spending time on PICASSO packaging**, because the packaging is the easy half and it is already done.
