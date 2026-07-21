@@ -1,7 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- Multi-targeted deliberately:
+           netstandard2.0 - consumed by the net10.0 test projects (a net10.0 project cannot
+                            reference a net472-only assembly).
+           net472         - what actually ships to OutSystems 11. Compiling against net472 makes
+                            the compile-time references match the net462-flavour DLLs that get
+                            bundled, which removes two binding redirects that the netstandard2.0
+                            build would otherwise require (notably System.Text.Json itself).
+         OutSystems documents 4.7.2 as the minimum supported target; 4.6.1 is explicitly an
+         unsupported scenario. The deployed platform stack is .NET Framework 4.8. -->
+    <TargetFrameworks>netstandard2.0;net472</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>Ariadne.Core</AssemblyName>
@@ -9,15 +18,29 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Reference assemblies so the net472 target framework builds on Linux/macOS too (no-op on a
+         Windows box that has the .NET Framework targeting packs installed). -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Pinned to the 5.x line: it targets netstandard2.0, so the built DLL is consumable by
          .NET Framework 4.7.2+, which OutSystems 11 Integration Studio extensions require.
          Neo4j.Driver 6.x is net8.0+ only and is reserved for the future ODC track. -->
     <PackageReference Include="Neo4j.Driver" Version="5.28.3" />
     <!-- The one dependency Feature 03 (the `Json` typed-escape-hatch parameter) is allowed to add.
-         Pinned to a netstandard2.0-compatible version (10.0.10, matching PICASSO) so the built DLL stays
-         consumable by .NET Framework 4.7.2+ (OutSystems 11). Its transitive deps must be bundled into the
-         O11 Integration Studio extension package. -->
-    <PackageReference Include="System.Text.Json" Version="10.0.10" />
+         Pinned to 8.0.5, NOT a 10.x version, for two OutSystems-specific reasons:
+           1. 8.0.5's transitive closure lines up with what Neo4j.Driver 5.28.3 was compiled
+              against (System.Memory 4.0.1.2, System.Threading.Tasks.Extensions 4.2.0.1,
+              System.IO.Pipelines 8.0.0.0 all match exactly). A 10.x closure does not, and O11
+              has no working binding-redirect mechanism to paper over the difference - extension
+              DLLs are flat-copied into the consuming module's bin2 folder.
+           2. 8.0.5 is the version OutSystems' own JWT Forge component ships (bumped there for
+              CVE-2024-30105). Matching it avoids a bin2 filename collision, where two extensions
+              shipping different System.Text.Json.dll versions silently overwrite each other.
+         Validated: the full suite including the F10 live-Neo4j round-trip oracle passes on 8.0.5
+         with zero disagreements. See /root/dev/ariadne-reconciliation.md. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
   </ItemGroup>
 
 </Project>

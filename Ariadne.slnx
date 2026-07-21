@@ -3,6 +3,9 @@
     <Project Path="src/Ariadne.Core/Ariadne.Core.csproj" />
     <Project Path="src/Ariadne.Extension/Ariadne.Extension.csproj" />
   </Folder>
+  <Folder Name="/packaging/">
+    <Project Path="packaging/Ariadne.Package/Ariadne.Package.csproj" />
+  </Folder>
   <Folder Name="/test/">
     <Project Path="test/Ariadne.Core.Tests/Ariadne.Core.Tests.csproj" />
     <Project Path="test/Ariadne.Extension.Tests/Ariadne.Extension.Tests.csproj" />

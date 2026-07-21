@@ -16,3 +16,4 @@ __pycache__/
 
 # Claude Code local tooling config — not part of the deliverable
 /.claude/settings.json
+packaging/out/

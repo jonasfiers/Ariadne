@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Packaging-only project. It ships no code of its own; its single job is to make NuGet resolve
+    ONE internally consistent .NET Framework dependency closure for Ariadne.Extension, so that the
+    set of DLLs handed to OutSystems 11 Integration Studio is coherent.
+
+    Why this exists: the previously-shipped bundle was hand-collected and mixed TFM flavours (it
+    contained the net462 build of Microsoft.Bcl.AsyncInterfaces next to the netstandard2.0 build of
+    System.Text.Json). That inconsistency is what produced Integration Studio's repeated
+    "Missing Assembly Reference" prompts. Resolving the closure once, for net472, removes it.
+
+    Build the bundle with:  packaging/build-bundle.sh
+  -->
+
+  <PropertyGroup>
+    <!-- net472 = OutSystems' documented minimum (4.6.1 is an unsupported scenario). The deployed
+         platform stack is .NET Framework 4.8, which runs net472 assemblies. -->
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Ariadne.Package</AssemblyName>
+    <IsPackable>false</IsPackable>
+
+    <!-- Pull the whole transitive closure into the output directory, not just direct references. -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+
+    <!-- Emit the binding redirects the closure would need. NOTE: OutSystems does NOT honour a
+         per-DLL .config file - the CLR only reads redirects from the application config, and the
+         module's web.config is regenerated on every deploy. The generated file is therefore
+         DOCUMENTATION of the residual version skew, not a working fix. See the bundle README. -->
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Ariadne.Extension/Ariadne.Extension.csproj" />
+  </ItemGroup>
+
+</Project>

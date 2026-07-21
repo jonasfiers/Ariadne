@@ -1,12 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.0</TargetFramework>
+    <!-- Multi-targeted to match Ariadne.Core - see the rationale there. net472 is the flavour
+         that ships to OutSystems 11; netstandard2.0 exists so the net10.0 test project can
+         reference it. -->
+    <TargetFrameworks>netstandard2.0;net472</TargetFrameworks>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <AssemblyName>Ariadne.Extension</AssemblyName>
     <RootNamespace>Ariadne.Extension</RootNamespace>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Lets the net472 target build on Linux/macOS; no-op on Windows with the targeting packs. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="../Ariadne.Core/Ariadne.Core.csproj" />
