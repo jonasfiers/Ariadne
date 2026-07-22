@@ -1,0 +1,11 @@
+<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Neo4j Bolt Connector">
+  <rect width="32" height="32" rx="6" fill="#12172B"/>
+  <g stroke="#C3CADF" stroke-width="2" stroke-linecap="round">
+    <line x1="9.5" y1="10" x2="23" y2="14.5"/>
+    <line x1="9.5" y1="10" x2="13" y2="23"/>
+    <line x1="23"  y1="14.5" x2="13" y2="23"/>
+  </g>
+  <circle cx="9.5" cy="10"   r="4.2" fill="#C6F135"/>
+  <circle cx="23"  cy="14.5" r="3.5" fill="#EDEFF7"/>
+  <circle cx="13"  cy="23"   r="3.5" fill="#EDEFF7"/>
+</svg>
